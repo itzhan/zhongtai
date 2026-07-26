@@ -1,11 +1,6 @@
-const { heroui } = require("@heroui/react");
-
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: [
-    "./src/**/*.{js,ts,jsx,tsx,mdx}",
-    "./node_modules/@heroui/**/dist/**/*.{js,ts,jsx,tsx,mjs}",
-  ],
+  content: ["./src/**/*.{js,ts,jsx,tsx,mdx}"],
   theme: {
     extend: {
       colors: {
@@ -42,6 +37,10 @@ module.exports = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        success: "hsl(var(--success))",
+        warning: "hsl(var(--warning))",
+        info: "hsl(var(--info))",
+        purple: "hsl(var(--purple))",
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -51,5 +50,5 @@ module.exports = {
     },
   },
   darkMode: "class",
-  plugins: [heroui(), require("tailwindcss-animate")],
+  plugins: [require("tailwindcss-animate")],
 };

@@ -19,17 +19,18 @@ export default function LoginPage() {
 function LoginInner() {
   const router = useRouter();
   const search = useSearchParams();
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function submit() {
-    if (!password) return;
+    if (!username || !password) return;
     setLoading(true);
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ username, password }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -44,6 +45,10 @@ function LoginInner() {
     }
   }
 
+  const onEnter = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") submit();
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-background">
       <Card className="w-full max-w-sm shadow-lg">
@@ -52,23 +57,33 @@ function LoginInner() {
             <Wallet size={22} className="text-white" />
           </div>
           <div className="text-center">
-            <h1 className="text-xl font-bold">Bill Manage</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">中转站账单管理</p>
+            <h1 className="text-xl font-bold">利润中台</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">中转利润管理中台</p>
           </div>
         </CardHeader>
         <CardContent className="pt-4 space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="password">管理员密码</Label>
+            <Label htmlFor="username">用户名</Label>
+            <Input
+              id="username"
+              autoComplete="username"
+              placeholder="请输入用户名"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              onKeyDown={onEnter}
+              autoFocus
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">密码</Label>
             <Input
               id="password"
               type="password"
+              autoComplete="current-password"
               placeholder="请输入密码"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") submit();
-              }}
-              autoFocus
+              onKeyDown={onEnter}
             />
           </div>
           <Button className="w-full" onClick={submit} disabled={loading}>

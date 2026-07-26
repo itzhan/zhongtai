@@ -32,6 +32,29 @@ export function fmtDate(d: Date | string | null | undefined): string {
   return date.toLocaleString("zh-CN", { hour12: false });
 }
 
+// 只要日期不要时间 —— 立项时间这类字段用它。
+export function fmtDay(d: Date | string | null | undefined): string {
+  if (!d) return "-";
+  const date = typeof d === "string" ? new Date(d) : d;
+  if (isNaN(date.getTime())) return "-";
+  return date.toLocaleDateString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+// 业务日历日 "YYYY-MM-DD"(Asia/Shanghai)。所有 periodDate / batchDate /
+// purchaseDate 的默认值都取它 —— 业务口径是上海自然日, 不能用 UTC。
+export function todayStr(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
 // Compact date: just MM-DD HH:mm for table rows.
 export function fmtDateShort(d: Date | string | null | undefined): string {
   if (!d) return "-";

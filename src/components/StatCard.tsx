@@ -20,24 +20,24 @@ const accentClasses: Record<NonNullable<StatCardProps["accent"]>, {
   glow: string;
 }> = {
   primary: {
-    iconBg: "bg-blue-100 dark:bg-blue-900/30",
-    iconText: "text-blue-600 dark:text-blue-400",
-    glow: "from-blue-500/8 dark:from-blue-500/5",
+    iconBg: "bg-primary/10 dark:bg-primary/20",
+    iconText: "text-primary",
+    glow: "from-primary/8 dark:from-primary/5",
   },
   success: {
-    iconBg: "bg-emerald-100 dark:bg-emerald-900/30",
-    iconText: "text-emerald-600 dark:text-emerald-400",
-    glow: "from-emerald-500/8 dark:from-emerald-500/5",
+    iconBg: "bg-success/10 dark:bg-success/20",
+    iconText: "text-success",
+    glow: "from-success/8 dark:from-success/5",
   },
   danger: {
-    iconBg: "bg-red-100 dark:bg-red-900/30",
-    iconText: "text-red-600 dark:text-red-400",
-    glow: "from-red-500/8 dark:from-red-500/5",
+    iconBg: "bg-destructive/10 dark:bg-destructive/20",
+    iconText: "text-destructive",
+    glow: "from-destructive/8 dark:from-destructive/5",
   },
   warning: {
-    iconBg: "bg-amber-100 dark:bg-amber-900/30",
-    iconText: "text-amber-600 dark:text-amber-400",
-    glow: "from-amber-500/8 dark:from-amber-500/5",
+    iconBg: "bg-warning/10 dark:bg-warning/20",
+    iconText: "text-warning",
+    glow: "from-warning/8 dark:from-warning/5",
   },
   default: {
     iconBg: "bg-secondary",

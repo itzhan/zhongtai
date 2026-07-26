@@ -1,50 +1,66 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { badRequest, requireAdminFresh, requireAuth } from "@/lib/guard";
+import { isOneOf, PROJECT_STATUS } from "@/lib/enums";
 
 export const runtime = "nodejs";
 
-const TYPES = new Set(["customer", "upstream"]);
-const STATUSES = new Set(["discussing", "pending_test", "tested"]);
+const INCLUDE = {
+  owner: { select: { id: true, displayName: true } },
+  _count: { select: { desks: true, products: true, purchases: true } },
+} as const;
 
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const type = searchParams.get("type");
-  const where = type && TYPES.has(type) ? { type } : {};
+  const g = await requireAuth();
+  if (!g.ok) return g.res;
+
+  const sp = new URL(req.url).searchParams;
+  const status = sp.get("status");
+  const q = (sp.get("q") ?? "").trim();
+
   const items = await prisma.project.findMany({
-    where,
-    orderBy: [{ updatedAt: "desc" }],
+    where: {
+      ...(status && status !== "all" ? { status } : {}),
+      ...(q ? { OR: [{ name: { contains: q } }, { code: { contains: q } }] } : {}),
+    },
+    include: INCLUDE,
+    orderBy: { id: "desc" },
   });
   return NextResponse.json({ items });
 }
 
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as Partial<{
-    type: string;
-    partnerName: string;
-    status: string;
-    goal: string;
-    siteUrl: string | null;
-  }>;
-  const { type, partnerName, status = "discussing", goal = "", siteUrl } = body;
+  const g = await requireAdminFresh();
+  if (!g.ok) return g.res;
 
-  if (!type || !TYPES.has(type)) {
-    return NextResponse.json({ error: "type 必须是 customer 或 upstream" }, { status: 400 });
+  const body = (await req.json().catch(() => ({}))) as Partial<{
+    code: string;
+    name: string;
+    status: string;
+    ownerId: number | null;
+    description: string;
+  }>;
+
+  const code = (body.code ?? "").trim();
+  const name = (body.name ?? "").trim();
+  if (!code) return badRequest("请填写项目代号");
+  if (!name) return badRequest("请填写项目名称");
+  if (body.status !== undefined && !isOneOf(PROJECT_STATUS, body.status)) {
+    return badRequest("状态非法");
   }
-  if (!partnerName || !partnerName.trim()) {
-    return NextResponse.json({ error: "合作方名称必填" }, { status: 400 });
-  }
-  if (!STATUSES.has(status)) {
-    return NextResponse.json({ error: "status 非法" }, { status: 400 });
-  }
+
+  const dup = await prisma.project.findUnique({ where: { code } });
+  if (dup) return NextResponse.json({ error: "项目代号已存在" }, { status: 409 });
 
   const item = await prisma.project.create({
     data: {
-      type,
-      partnerName: partnerName.trim(),
-      status,
-      goal: goal ?? "",
-      siteUrl: type === "upstream" ? (siteUrl?.trim() || null) : null,
+      code,
+      name,
+      status: body.status ?? "active",
+      ownerId: body.ownerId ?? null,
+      description: body.description ?? "",
     },
+    include: INCLUDE,
   });
   return NextResponse.json({ item });
 }

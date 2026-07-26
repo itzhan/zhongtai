@@ -1,1 +1,0 @@
-"""Packaged Anthropic detector data."""

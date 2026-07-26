@@ -24,7 +24,13 @@
     --input: 220 13% 91%;
     --ring: 221 83% 53%;
     --radius: 0.75rem;
-    --sidebar: 220 20% 98%;
+
+    /* 语义色 —— badge / StatCard / 图表共用同一套色板。
+       数值对齐 Tailwind 的 emerald-600 / amber-600 / sky-600 / violet-600。 */
+    --success: 160 84% 39%;
+    --warning: 32 95% 44%;
+    --info: 200 98% 39%;
+    --purple: 262 83% 58%;
   }
 
   .dark {
@@ -47,6 +53,12 @@
     --border: 224 10% 18%;
     --input: 224 10% 18%;
     --ring: 217 91% 60%;
+
+    /* 暗色下提亮一档: emerald-400 / amber-400 / sky-400 / violet-400 */
+    --success: 158 64% 52%;
+    --warning: 43 96% 56%;
+    --info: 199 89% 60%;
+    --purple: 255 92% 76%;
   }
 }
 
@@ -62,11 +74,4 @@
 html,
 body {
   height: 100%;
-}
-
-@media (max-width: 767px) {
-  *:has(> table) {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
 }

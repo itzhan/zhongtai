@@ -1,3 +1,13 @@
+// 中转利润管理中台 —— 数据模型
+//
+// SQLite 下 Prisma 不支持 enum, 所有"枚举"一律用 String + 注释列出合法值,
+// 由 src/lib/rbac.ts 与各 handler 的常量数组在 API 层校验。
+//
+// 日期字段的两种写法是刻意区分的:
+//   DateTime —— 记录"发生时刻"(createdAt / handledAt / expiresAt)
+//   String   —— 记录"业务日历日", 存 "YYYY-MM-DD"。业务口径是 Asia/Shanghai
+//                的自然日, 用 DateTime 会在跨时区读写时偏移一天。
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,738 +17,483 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Settings {
-  id                        Int       @id @default(1)
-  adminPasswordHash         String
-  diffThreshold             Float     @default(10)
-  syncIntervalMinutes       Int       @default(5)
-  emailAlertEnabled         Boolean   @default(false)
-  // Email sender configuration (aifun-style email API)
-  emailEndpoint             String    @default("https://aifun.edu.kg/api/email/send")
-  emailAuthToken            String?
-  emailSenderEmail          String?
-  emailSenderName           String?
-  emailSenderAccountId      Int?
-  emailReceivers            String? // comma-separated emails
-  emailSubject              String    @default("xxx上游差异通知")
-  // cooldown: don't send another alert within this many minutes
-  emailCooldownMinutes      Int       @default(30)
-  emailLastSentAt           DateTime?
-  emailLastSentDigest       String? // hash-ish key to dedupe identical alerts
-  // ── Error-rate alert (sub2api site request_error_rate) ──
-  // Reuses the same email config (endpoint/sender/receivers) as the diff
-  // alert above; just a separate trigger + cooldown.
-  errorRateAlertEnabled     Boolean   @default(false)
-  errorRateThreshold        Float     @default(0.04) // 0.04 = 4%
-  errorRateCooldownMinutes  Int       @default(30)
-  errorRateLastSentAt       DateTime?
-  // Shared scheduling-page filter — newline-separated name prefixes.
-  // Persisted server-side (was localStorage) so the same exclusion
-  // applies for every operator.
-  schedulingExcludePrefixes String?
-  schedulingDefaultSiteId   Int?
-  // Newline-separated name prefixes excluded from the "未绑定账号" view.
-  // 典型用法：把 AZ 前缀（如 az-）排除掉，因为这些账号靠 fixedCost 单独
-  // 计算，不需要再去补 upstream binding。
-  unboundExcludePrefixes    String?
-  // 与 prefixes 平行;按行/逗号分隔, 账号名以这些 suffix 结尾会被隐藏。
-  unboundExcludeSuffixes    String?
-  // Preferred site account for the az batch tool. Quick-pick on page load.
-  defaultAzSiteAccountId    Int?
+// ═══════════════════════════════════════════════════════════════════
+// 账号与权限
+// ═══════════════════════════════════════════════════════════════════
+
+/// 系统用户。单角色模型 —— 一人一岗, admin 隐式拥有全部权限。
+/// 若将来需要兼岗, 把 role 改成逗号分隔并调整 rbac.hasRole 即可,
+/// 所有 route handler 不受影响 (它们只调 requireRole)。
+model User {
+  id           Int      @id @default(autoincrement())
+  /// 登录名, 英文/数字
+  username     String   @unique
+  /// bcrypt hash, cost 10
+  passwordHash String
+  /// 中文姓名, 列表与归属展示用
+  displayName  String
+  /// admin 管理员 | sales 销售 | production 生产 | finance 财务 | resource 资源管理员
+  role         String
+  /// 停用后无法登录。已签发的 JWT 需等过期才失效, 但所有写操作会用
+  /// requireRoleFresh 复查本字段, 所以停用后立即写不了数据。
+  active       Boolean  @default(true)
+  note         String   @default("")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  ownedProjects     Project[]         @relation("ProjectOwner")
+  ownedDesks        Desk[]            @relation("DeskOwner")
+  ownedSuppliers    Supplier[]        @relation("SupplierOwner")
+  purchases         Purchase[]
+  reportedRequests  ResourceRequest[] @relation("RequestReporter")
+  handledRequests   ResourceRequest[] @relation("RequestHandler")
+  productionBatches ProductionBatch[]
+
+  @@index([role])
 }
 
-model AzPreset {
-  id            Int      @id @default(autoincrement())
-  siteAccountId Int      @unique
-  // JSON blob — see lib/az.ts AzConfig type for schema
-  config        String
-  updatedAt     DateTime @updatedAt
+// ═══════════════════════════════════════════════════════════════════
+// 项目 —— 一切成本与收入的归集维度
+//   "做的事情分成一个个项目, 每个项目独立但逻辑一样, 只是匹配不同的
+//    销售产品。台子、采购在计算成本时都归属到项目里。"
+//   本表只负责"立项", 不含任何统计字段 —— 收入/成本/利润全部由
+//   src/lib/profit.ts 实时聚合, 避免冗余字段与真实流水不一致。
+// ═══════════════════════════════════════════════════════════════════
 
-  siteAccount SiteAccount @relation(fields: [siteAccountId], references: [id], onDelete: Cascade)
-}
-
-// 用户自定义的渠道分类 — 在 /upstream 页作为 Tab 展示, admin 可以增删。
-// UpstreamAccount.categories (JSON string[]) 引用这里的 name; 删除分类不级联,
-// 残留引用 UI 自动按"未知分类"处理(也不影响展示)。
-model UpstreamCategory {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique
-  sortOrder Int      @default(0)
-  createdAt DateTime @default(now())
-}
-
-model UpstreamAccount {
-  id               Int       @id @default(autoincrement())
-  name             String
-  type             String    @default("sub2api")
-  // 模型族分类 (legacy 单值, 沿用避免破坏旧数据 + 旧 SQL 查询)
-  // 新逻辑用 categories 字段, UI 显示也以 categories 为准。
-  category         String    @default("claude")
-  // 多分类: JSON.stringify 的 string[], 例如 '["claude","windsurf"]'。
-  // null 时 fallback 到 [category] 单元素。候选名称由 UpstreamCategory 维护。
-  categories       String?
-  // 上游/货源分组: 同名 supplier 的渠道在管理页聚成一张父卡。null = 散户
-  // 渠道(按现状大卡片单独显示)。绑定/计费完全不看这个字段。
-  supplier         String?
-  baseUrl          String
-  email            String
-  password         String
-  accessToken      String?
-  refreshToken     String?
-  tokenExpiresAt   DateTime?
-  remoteUserId     Int?
-  lastSyncAt       DateTime?
-  lastSyncError    String?
-  balance          Float?
-  balanceUpdatedAt DateTime?
-  // Manually-curated supply info ("货源情况").
-  // notes: free-form remarks; inventory: JSON list [{name,price,concurrency,note}]
-  notes            String?
-  inventory        String?
-  // ── 余额提醒 (per-channel) ──
-  // thresholds: JSON number[], 阈值。balance 跌破任一阈值 → 邮件提醒一次,
-  // 直到 balance 重新 >= 该阈值(用户充钱了)才重置, 这样不会重复提醒。
-  // fired: 当前已经"用掉"的阈值, balance 回升到 >= T 时把 T 移出。
-  balanceAlertEnabled       Boolean   @default(false)
-  balanceAlertIntervalMin   Int       @default(60)
-  balanceAlertThresholdsJson String?
-  balanceAlertFiredJson     String?
-  balanceAlertLastCheckAt   DateTime?
-  hidden                    Boolean   @default(false)
-  createdAt        DateTime  @default(now())
-
-  keys         UpstreamKey[]
-  ledgerLinks  LedgerUpstreamLink[]
-}
-
-model UpstreamKey {
-  id                              Int       @id @default(autoincrement())
-  upstreamAccountId               Int
-  remoteKeyId                     Int
-  name                            String
-  keyMasked                       String
-  // 完整的 raw api key（从上游 sub2api /api/v1/keys 拉回时写入）。
-  // 用于"自动匹配绑定"——把 site 端 admin account 的 credentials.api_key
-  // 跟这里的 apiKey 对碰，相同就建议绑定。可能为空（旧行或上游返回 mask）。
-  apiKey                          String?
-  groupId                         Int
-  groupName                       String
-  // Group's default multiplier (for display/reference)
-  groupRateMultiplier             Float
-  // Effective multiplier for THIS user. If sub2api returns a per-user
-  // override in /api/v1/groups/rates, that value is used; otherwise this
-  // equals groupRateMultiplier. ALL cost normalization uses this field.
-  effectiveRateMultiplier         Float     @default(1)
-  hasExclusiveRate                Boolean   @default(false)
-  // When the rate changes mid-day, snapshot the previous rate and the
-  // accumulated cost AT the moment of change. Cost up to that snapshot
-  // is normalized with the previous rate; cost after with the current rate.
-  previousEffectiveRateMultiplier Float?
-  costAtRateChange                Float?
-  rateChangedAt                   DateTime?
-  todayActualCost                 Float     @default(0)
-  totalActualCost                 Float     @default(0)
-  // 充值倍率：我们买这条 key 余额时实际付了几折钱。例如 0.5 = 半价充值。
-  // 在 sync 时把上游报告的成本×这个倍率写入 todayActualCost/totalActualCost，
-  // 反映"我们真金白银花了多少"。默认 1（按面值计）。
-  rechargeMultiplier              Float     @default(1)
-  lastUpdatedAt                   DateTime?
-
-  upstreamAccount UpstreamAccount @relation(fields: [upstreamAccountId], references: [id], onDelete: Cascade)
-  bindings        Binding[]
-  ledgerLinks     LedgerUpstreamKeyLink[]
-
-  @@unique([upstreamAccountId, remoteKeyId])
-}
-
-model SiteAccount {
-  id             Int       @id @default(autoincrement())
-  name           String
-  type           String    @default("sub2api")
-  baseUrl        String
-  // For sub2api: admin api key (sent as x-api-key). Preferred over email/password.
-  // When non-null, login flow is skipped entirely. email/password become record-only.
-  apiKey         String?
-  email          String
-  password       String
-  accessToken    String?
-  refreshToken   String?
-  tokenExpiresAt DateTime?
-  remoteUserId   Int?
-  lastSyncAt     DateTime?
-  lastSyncError  String?
-  hidden         Boolean   @default(false)
-  createdAt      DateTime  @default(now())
-
-  accounts     SiteBoundAccount[]
-  users        SiteUser[]
-  azPreset     AzPreset?
-  groupPresets SiteGroupPreset[]
-  publicShares PublicShare[]
-  ledgerLinks  LedgerSiteLink[]
-}
-
-// 对外展示链接：用 8 位随机 shareId 暴露某个 SiteAccount 的实时 RPM/TPM、
-// 指定用户的并发 + 分组 RPM + 今日/累计消费。免登录访问。
-//   userIdsJson  — 允许展示的 SiteUser.remoteUserId 列表 (JSON number[])
-//   groupIdsJson — 允许展示的 sub2api 分组 id 列表 (JSON number[])
-// 留空 = 不展示任何 (安全默认)。
-model PublicShare {
-  id            Int      @id @default(autoincrement())
-  shareId       String   @unique
-  siteAccountId Int
-  name          String   @default("")
-  userIdsJson   String   @default("[]")
-  groupIdsJson  String   @default("[]")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  siteAccount SiteAccount @relation(fields: [siteAccountId], references: [id], onDelete: Cascade)
-
-  @@index([siteAccountId])
-}
-
-model SiteUser {
-  id                     Int       @id @default(autoincrement())
-  siteAccountId          Int
-  remoteUserId           Int
-  email                  String
-  username               String    @default("")
-  role                   String    @default("user")
-  status                 String    @default("active")
-  balance                Float     @default(0)
-  totalRecharged         Float     @default(0)
-  // Today's spend (Asia/Shanghai). Pulled from /admin/usage/stats per sync.
-  todayCost              Float     @default(0) // 1× base
-  todayActualCost        Float     @default(0) // × user's effective rate
-  todayStatsAt           DateTime?
-  // Manual multiplier applied when computing this user's effective spend.
-  // null = use 1.0 (charge them as billed). Useful for VIP discounts.
-  rateMultiplierOverride Float?
-  // Local-only display name to override the synced username/email in tables.
-  alias                  String?
-  notes                  String?
-  lastActiveAt           DateTime?
-  lastUsedAt             DateTime?
-  remoteCreatedAt        DateTime?
-  lastSyncAt             DateTime?
-
-  siteAccount SiteAccount         @relation(fields: [siteAccountId], references: [id], onDelete: Cascade)
-  settlements SettlementPayment[]
-  ledgerLinks LedgerSiteUserLink[]
-
-  @@unique([siteAccountId, remoteUserId])
-}
-
-model SettlementPayment {
-  id         Int      @id @default(autoincrement())
-  siteUserId Int
-  amount     Float // positive = client paid us
-  paidAt     DateTime @default(now())
-  notes      String?
-  createdAt  DateTime @default(now())
-
-  siteUser SiteUser @relation(fields: [siteUserId], references: [id], onDelete: Cascade)
-
-  @@index([siteUserId])
-}
-
-model SiteBoundAccount {
-  id                     Int       @id @default(autoincrement())
-  siteAccountId          Int
-  remoteAccountId        Int
-  name                   String
-  rateMultiplier         Float     @default(1) // synced from upstream account.rate_multiplier
-  // Manual override for revenue calculation. When set, dashboard computes
-  // user_cost = todayCost × rateMultiplierOverride instead of trusting the
-  // upstream-supplied todayUserCost. Useful when the synced rate
-  // (e.g. average across mixed groups) doesn't reflect the actual rate.
-  rateMultiplierOverride Float?
-  // Fixed (one-time) cost we paid for this account, set at az import time.
-  // When non-null, dashboard uses this instead of the synced todayCost
-  // for profit math — az channels are flat-fee, not per-token billed.
-  fixedCost              Float?
-  groupSummary           String? // JSON string with group_id+name+multiplier list
-  todayRequests          Int       @default(0)
-  todayTokens            BigInt    @default(0)
-  todayCost              Float     @default(0) // 1x base
-  todayStandardCost      Float     @default(0)
-  todayUserCost          Float     @default(0) // revenue (synced)
-  lastUpdatedAt          DateTime?
-
-  siteAccount SiteAccount @relation(fields: [siteAccountId], references: [id], onDelete: Cascade)
-  bindings    Binding[]
-
-  @@unique([siteAccountId, remoteAccountId])
-}
-
-model Binding {
-  id                 Int       @id @default(autoincrement())
-  siteBoundAccountId Int
-  upstreamKeyId      Int
-  // Capacity hint: total concurrency the upstream key can safely accept.
-  // Surfaced in /scheduling so user can see if total in-flight across bound
-  // site channels is approaching upstream's tolerance. Not enforced here.
-  maxConcurrency     Int?
-  createdAt          DateTime  @default(now())
-  // Soft-delete + 历史 binding。null = 当前仍生效。设了时间 = 历史 binding,
-  // 不再参与"今天"的配对, 但回看历史日期时 (createdAt ≤ 那天 ≤ endedAt)
-  // 仍会被用来配对收入和支出。
-  endedAt            DateTime?
-
-  siteBoundAccount SiteBoundAccount @relation(fields: [siteBoundAccountId], references: [id], onDelete: Cascade)
-  upstreamKey      UpstreamKey      @relation(fields: [upstreamKeyId], references: [id], onDelete: Cascade)
-
-  @@index([siteBoundAccountId, upstreamKeyId])
-}
-
-// Reusable preset for "create channel" form on the scheduling page.
-// Stores type / platform / group_ids / model_mapping defaults.
-model SchedulingTemplate {
-  id                      Int      @id @default(autoincrement())
-  name                    String
-  // null = available across all sub2api site accounts
-  siteAccountId           Int?
-  platform                String   @default("anthropic")
-  type                    String   @default("apikey")
-  rateMultiplier          Float    @default(1)
-  // JSON arrays
-  groupIds                String // [int]
-  modelList               String // [string] — model ids (for whitelist / mapping defaults)
-  confirmMixedChannelRisk Boolean  @default(true)
-  notes                   String?
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
-}
-
-// Time-series snapshot persisted once per syncAll (or manual sync) so we can
-// chart trends over time. Today-only data wouldn't give us a line otherwise.
-model Snapshot {
-  id                    Int      @id @default(autoincrement())
-  takenAt               DateTime @default(now())
-  totalRevenue          Float
-  totalExpense          Float
-  totalProfit           Float
-  totalSiteCostBase     Float
-  totalUpstreamCostBase Float
-  totalDiff             Float
-  upstreamKeyCount      Int
-  siteBoundCount        Int
-  bindingCount          Int
-
-  @@index([takenAt])
-}
-
-// 渠道分组：一个 (name, baseUrl) 下面挂多把 key。同一个中转站常常给同一个
-// 入口分发不同的 key（不同会员/不同试用），把它们聚到一起看更直观，也方便
-// 同时点测多把 key、横比哪一把状态最干净。
-model BenchChannel {
-  id        Int      @id @default(autoincrement())
-  name      String
-  baseUrl   String
-  notes     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  keys BenchChannelKey[]
-
-  @@index([createdAt])
-}
-
-model BenchChannelKey {
-  id        Int      @id @default(autoincrement())
-  channelId Int
-  name      String // 用户自命名，如 "v4-vip"
-  apiKey    String // 明文存储；展示时 mask
-  notes     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  channel      BenchChannel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  runs         BenchRun[]
-  veridropRuns VeridropRun[]
-
-  @@index([channelId])
-}
-
-// One benchmark run = one (channel, mode, key) combination tested against the
-// SWE-Atlas-QnA dataset. The engine spawns one BenchTask row per sampled
-// question, updates each as it grades, and finalizes summary fields on the
-// run when all tasks complete.
-model BenchRun {
-  id                           Int       @id @default(autoincrement())
-  // Optional link to a saved channel-key. When set, the engine still uses
-  // baseUrl / apiKey from the run row (snapshot at start time), but the UI
-  // can group runs under their key. null = legacy ad-hoc run.
-  channelKeyId                 Int?
-  name                         String
-  baseUrl                      String
-  apiKeyMasked                 String
-  apiKey                       String
-  model                        String    @default("claude-opus-4-7")
-  judgeModel                   String    @default("claude-opus-4-7")
-  effort                       String    @default("high")
-  judgeEffort                  String    @default("high")
-  n                            Int
-  seed                         Int       @default(42)
-  concurrency                  Int       @default(10)
-  // queued | running | done | error | canceled
-  status                       String    @default("queued")
-  totalCount                   Int
-  completedCount               Int       @default(0)
-  failedCount                  Int       @default(0)
-  // Filled when status flips to done.
-  mustHavePassRate             Float?
-  taskResolveRate              Float?
-  allItemsPassRate             Float?
-  avgAnswerLatencyS            Float?
-  avgJudgeLatencyS             Float?
-  totalInputTokens             Int?
-  totalOutputTokens            Int?
-  totalThinkingChars           Int?
-  // Forensic flags — populated from first successful task.
-  hasSignature                 Boolean?
-  serviceTierPresent           Boolean?
-  cacheCreationPresent         Boolean?
-  errorSummary                 String?
-  // Cancellation flag — engine polls this between tasks.
-  cancelRequested              Boolean   @default(false)
-  // ── Fingerprint probe (一发探针，先于 QnA 跑) ──
-  // status flow: pending → running → done | error
-  probeStatus                  String    @default("pending")
-  probeError                   String?
-  probeLatencyS                Float?
-  probeInputTokens             Int?
-  probeOutputTokens            Int?
-  probeThinkingChars           Int?
-  probeHasSignature            Boolean?
-  probeServiceTierPresent      Boolean?
-  probeCacheCreationPresent    Boolean?
-  // 真伪指数（per BENCHMARK.md §7） — 越正越像真，越负越像伪。
-  probeAuthenticityScore       Int?
-  // verdict: real | suspicious | fake
-  probeVerdict                 String?
-  // 探针的原始模型回答（截断到 ~10K 字符，用于法医回看）
-  probeAnswerPreview           String?
-  // 完整 raw response JSON（截断到 ~30K，便于复盘）
-  probeRawResponse             String?
-  // ── 长文本思考截断探针（opt-in：用户在新建 run 或详情页手动开启）──
-  // not_requested | pending | running | done | error | skipped
-  truncProbeStatus             String    @default("not_requested")
-  truncProbeError              String?
-  truncProbeLatencyS           Float?
-  // requested max_tokens we sent (~64000)
-  truncProbeRequestedMaxTokens Int?
-  // Anthropic Messages stop_reason: end_turn | max_tokens | stop_sequence | …
-  truncProbeStopReason         String?
-  truncProbeOutputTokens       Int?
-  truncProbeThinkingChars      Int?
-  truncProbeHasText            Boolean?
-  // ok | thinking_cut | answer_cut | silent_throttle | network_cut
-  truncProbeVerdict            String?
-  truncProbeAnswerPreview      String?
-  startedAt                    DateTime?
-  finishedAt                   DateTime?
-  createdAt                    DateTime  @default(now())
-
-  tasks      BenchTask[]
-  channelKey BenchChannelKey? @relation(fields: [channelKeyId], references: [id], onDelete: SetNull)
-
-  @@index([createdAt])
-  @@index([channelKeyId])
-}
-
-model BenchTask {
-  id                 Int       @id @default(autoincrement())
-  runId              Int
-  taskId             String
-  category           String
-  language           String
-  repo               String
-  // pending | running | done | error
-  status             String    @default("pending")
-  mustGot            Int?
-  mustTotal          Int?
-  allGot             Int?
-  allTotal           Int?
-  resolved           Boolean?
-  answerLatencyS     Float?
-  judgeLatencyS      Float?
-  answerInputTokens  Int?
-  answerOutputTokens Int?
-  judgeInputTokens   Int?
-  judgeOutputTokens  Int?
-  thinkingChars      Int?
-  hasSignature       Boolean?
-  // Bulky payloads, only filled on done.
-  answerText         String?
-  judgeRawText       String?
-  judgeParsedJson    String?
-  errorText          String?
-  startedAt          DateTime?
-  finishedAt         DateTime?
-
-  run BenchRun @relation(fields: [runId], references: [id], onDelete: Cascade)
-
-  @@unique([runId, taskId])
-  @@index([runId])
-}
-
-// One row per Asia/Shanghai date, keeps refreshing during the day,
-// "freezes" naturally once the calendar date rolls over (next sync
-// writes to a new row).
-model DailyProfit {
-  id               Int      @id @default(autoincrement())
-  date             String   @unique // YYYY-MM-DD in Asia/Shanghai
-  revenue          Float
-  expense          Float
-  profit           Float
-  siteCostBase     Float
-  upstreamCostBase Float
-  diff             Float
-  capturedAt       DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-}
-
-// 全局支出规则——按账号名前缀或后缀给一类账号设固定支出。
-// 典型场景：所有 az- 前缀的账号都算 500 块/天，不需要绑 upstream key。
-// 或者所有 -o总 后缀的账号都算 X。prefix / suffix 至少有一个;两个都填
-// 则两者任一命中即匹配。
-// 优先级低于 SiteBoundAccount.fixedCost (后者是 per-账号 override)。
-model ExpenseRule {
-  id        Int      @id @default(autoincrement())
-  // 大小写不敏感匹配; 空串 = 不按前缀匹配 (这时必须有 suffix)
-  // 不再 @unique — 加 suffix 后允许 prefix 空的纯后缀规则, 同时不应限制
-  // 同一个 prefix 只能配一个 suffix。重复 admin 自行管理。
-  prefix    String
-  // 按账号名后缀匹配 (例如 "-o总"). 空/null = 不按后缀匹配。
-  suffix    String?
-  fixedCost Float
-  notes     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-// 逐 key / 逐账号的每日明细快照。每次 sync / backfill / breakdown 查询
-// 都会 upsert 到这里，作为上游下线后的"灰飞烟灭"兜底——只要点开过/同步过
-// 至少一次，明细就永久留底。
-model DailyProfitBreakdown {
-  id                  Int      @id @default(autoincrement())
-  date                String // YYYY-MM-DD Asia/Shanghai
-  kind                String // "upstream" | "site"
-  refId               Int // UpstreamKey.id 或 SiteBoundAccount.id（在各自 namespace 内唯一）
-  label               String // 显示用："acme / vip-key" 或 "acme / acc-1"
-  // upstream-only metadata snapshots (倍率等 — 留底时定格，免得后续改了倍率
-  // 看历史时被算错)
-  groupName           String?
-  effectiveRate       Float?
-  rechargeMultiplier  Float?
-  upstreamAccountId   Int?
-  upstreamAccountName String?
-  upstreamType        String?
-  // site-only metadata
-  siteAccountId       Int?
-  siteAccountName     String?
-  rateMultiplier      Float?
-  // 实数据
-  cost                Float // 1× 基础（face value）
-  actualCost          Float // 应用倍率后（贡献给 revenue 或 expense）
-  // 用户手动改写过的 actualCost。非 null 时优先于 actualCost。
-  // 回填/同步**不动**这两个字段（只更新 cost/actualCost 同步值），保证手动改的不被覆盖。
-  manualActualCost    Float?
-  manualCost          Float?
-  // 仅 site 行使用: 该日该 site 的"支出"手动值。优先级最高(高于 fixedCost
-  // 和 ExpenseRule)。这样在每日明细 modal 改 unbound_site 的支出只影响
-  // 该日, 不像 SiteBoundAccount.fixedCost 是全局的会影响每一天。
-  manualExpense       Float?
-  capturedAt          DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-
-  @@unique([date, kind, refId])
-  @@index([date])
-}
-
-// 项目跟踪：手工维护的合作进度表。两种 type：
-//   customer  — 我们 → 企业，客户跑我们的 API
-//   upstream  — 我们 → 渠道商，我们跑对方的 API（多 siteUrl 列）
-// 状态 status 只有三档：discussing / pending_test / tested
 model Project {
   id          Int      @id @default(autoincrement())
-  type        String // customer | upstream
-  partnerName String
-  status      String   @default("discussing") // discussing | pending_test | tested
-  // 多目标存储：每行一条，渲染时切分为编号列表
-  goal        String   @default("")
-  siteUrl     String? // 仅 upstream 用
+  /// 项目代号, 短标识, 用于列表与筛选 (如 "P-2026-01")
+  code        String   @unique
+  name        String
+  /// active 进行中 | paused 暂停 | closed 已结束
+  status      String   @default("active")
+  /// 项目负责人 (通常是销售或管理员)
+  ownerId     Int?
+  description String   @default("")
+  startedAt   DateTime @default(now())
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@index([type, status])
-}
+  owner     User?             @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  products  Product[]
+  desks     Desk[]
+  suppliers Supplier[]
+  purchases Purchase[]
+  requests  ResourceRequest[]
+  batches   ProductionBatch[]
+  cards     CardResource[]
+  proxies   ProxyResource[]
+  emails    EmailResource[]
 
-// 站点维度的"分组集合"预设。每个 sub2api 站点上有一堆 admin 分组
-// (claude / claude-max / windsurf / kiro / 等), 用户经常需要在创建账号
-// 或批量录入 sk-ant 时反复选同一组分组。这张表把这种常用组合存下来,
-// 选预设一次性回填 group_ids。
-model SiteGroupPreset {
-  id            Int      @id @default(autoincrement())
-  siteAccountId Int
-  name          String // "claude 全套" / "max only" 这种描述
-  groupIdsJson  String // JSON: number[]
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  siteAccount SiteAccount @relation(fields: [siteAccountId], references: [id], onDelete: Cascade)
-
-  @@index([siteAccountId])
-}
-
-// veridrop (开源 AI relay 真伪检测) 单次跑的结果。跟 BenchRun 平级,
-// 不混淆 SWE-Atlas 那套字段。reportJson 存 veridrop 输出的完整 JSON
-// (相当于 cli `relay-detector detect -o file.json` 的内容), 解析交给前端。
-// 跑一次 full ~70s + ~$0.02。
-model VeridropRun {
-  id           Int      @id @default(autoincrement())
-  channelKeyId Int
-  // anthropic | openai | gemini
-  protocol     String
-  // quick | standard | full
-  mode         String
-  model        String
-  // queued | running | done | error
-  status       String   @default("queued")
-  // 解析自 reportJson 的几个顶层字段, 便于列表展示, 不用每行都解析 blob
-  totalScore   Float?
-  verdict      String? // passed | marginal | failed
-  summary      String? // "优秀" / "通过" / "基本合格" / "未达标"
-  // 完整 veridrop JSON 报告 (~10-50KB)。errorText 是 spawn/run 失败时的错误。
-  reportJson   String?
-  errorText    String?
-  startedAt    DateTime?
-  finishedAt   DateTime?
-  createdAt    DateTime @default(now())
-
-  channelKey BenchChannelKey @relation(fields: [channelKeyId], references: [id], onDelete: Cascade)
-
-  @@index([channelKeyId])
-  @@index([createdAt])
-}
-
-// 自定义分组：把 sub2api 上的多个原生分组聚合到一个虚拟分组里，
-// 在「资源调度」页统一查看 + 一键智能调度。原生分组本身不变，
-// 这只是一层 UI 层面的聚合视图。
-//   groupIdsJson — JSON list of native sub2api group ids (number[])
-model CustomGroup {
-  id            Int      @id @default(autoincrement())
-  siteAccountId Int
-  name          String
-  groupIdsJson  String // JSON: number[]
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  @@index([siteAccountId])
+  @@index([status])
+  @@index([ownerId])
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// 账本 — 多项目记账，关联上游/本站自动算成本与收入，手动录入自建成本
+// 产品 —— 卡片视图, 销售可见
 // ═══════════════════════════════════════════════════════════════════
 
-model Ledger {
-  id                Int      @id @default(autoincrement())
-  name              String
-  revenueMultiplier Float    @default(1)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  upstreamLinks LedgerUpstreamLink[]
-  siteLinks     LedgerSiteLink[]
-  keyLinks      LedgerUpstreamKeyLink[]
-  userLinks     LedgerSiteUserLink[]
-  categories    LedgerCategory[]
-  fixedCosts    LedgerFixedCost[]
-  fixedIncomes  LedgerFixedIncome[]
-}
-
-model LedgerUpstreamLink {
-  id                Int @id @default(autoincrement())
-  ledgerId          Int
-  upstreamAccountId Int
-
-  ledger          Ledger          @relation(fields: [ledgerId], references: [id], onDelete: Cascade)
-  upstreamAccount UpstreamAccount @relation(fields: [upstreamAccountId], references: [id], onDelete: Cascade)
-
-  @@unique([ledgerId, upstreamAccountId])
-}
-
-model LedgerSiteLink {
-  id            Int @id @default(autoincrement())
-  ledgerId      Int
-  siteAccountId Int
-
-  ledger      Ledger      @relation(fields: [ledgerId], references: [id], onDelete: Cascade)
-  siteAccount SiteAccount @relation(fields: [siteAccountId], references: [id], onDelete: Cascade)
-
-  @@unique([ledgerId, siteAccountId])
-}
-
-model LedgerCategory {
+/// status 与 capacity 按需求明确是【自由文本】而非枚举/数字。
+/// 不要给它们加约束; 前端空值渲染成 "-", 状态色由关键词推导
+/// (src/lib/product-status.ts), 推导不出就回落中性灰。
+model Product {
   id        Int      @id @default(autoincrement())
-  ledgerId  Int
   name      String
-  createdAt DateTime @default(now())
-
-  ledger     Ledger            @relation(fields: [ledgerId], references: [id], onDelete: Cascade)
-  fixedCosts LedgerFixedCost[]
-
-  @@unique([ledgerId, name])
-}
-
-model LedgerFixedCost {
-  id         Int      @id @default(autoincrement())
-  ledgerId   Int
-  categoryId Int
-  amount     Float
-  note       String?
-  startDate  String?
-  endDate    String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  ledger   Ledger         @relation(fields: [ledgerId], references: [id], onDelete: Cascade)
-  category LedgerCategory @relation(fields: [categoryId], references: [id])
-}
-
-model LedgerFixedIncome {
-  id        Int      @id @default(autoincrement())
-  ledgerId  Int
-  amount    Float
-  note      String?
+  /// 当前状态 —— 自由文本 (如 "稳定供货" / "缺货中" / "测试阶段")
+  status    String?
+  /// 产能 —— 自由文本, 可空 (如 "日均 200 个" / "看上游")
+  capacity  String?
+  /// 归属项目; 为空表示通用产品, 不绑定任何项目
+  projectId Int?
+  notes     String   @default("")
+  sortOrder Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  ledger Ledger @relation(fields: [ledgerId], references: [id], onDelete: Cascade)
+  project       Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  deskItems     DeskItem[]
+  supplierItems SupplierItem[]
+  batches       ProductionBatch[]
+
+  @@index([projectId])
+  @@index([sortOrder])
 }
 
-model LedgerUpstreamKeyLink {
-  id            Int   @id @default(autoincrement())
-  ledgerId      Int
-  upstreamKeyId Int
-  multiplier    Float @default(1)
+// ═══════════════════════════════════════════════════════════════════
+// 台子 (下游客户/买家) —— 收入侧
+//   台子本身记客户信息与需求描述; 具体卖什么、多少钱在 DeskItem 明细行。
+//   一个台子可以有多条货明细 (不同产品不同单价)。
+// ═══════════════════════════════════════════════════════════════════
 
-  ledger      Ledger      @relation(fields: [ledgerId], references: [id], onDelete: Cascade)
-  upstreamKey UpstreamKey @relation(fields: [upstreamKeyId], references: [id], onDelete: Cascade)
+model Desk {
+  id        Int      @id @default(autoincrement())
+  /// 台子名称 / 客户代号
+  name      String
+  /// 归属销售 —— 销售角色只能看到 ownerId = 自己的台子
+  ownerId   Int
+  projectId Int
+  /// 联系方式 (TG / 微信 / 邮箱, 自由文本)
+  contact   String   @default("")
+  /// 货的需求情况 —— 自由文本, 多行。结构化的量价在 items 里
+  demand    String   @default("")
+  /// active 合作中 | paused 暂停 | closed 已终止
+  status    String   @default("active")
+  notes     String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@unique([ledgerId, upstreamKeyId])
+  owner   User       @relation("DeskOwner", fields: [ownerId], references: [id])
+  project Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items   DeskItem[]
+
+  @@index([ownerId])
+  @@index([projectId])
+  @@index([status])
 }
 
-model LedgerSiteUserLink {
-  id         Int   @id @default(autoincrement())
-  ledgerId   Int
-  siteUserId Int
-  multiplier Float @default(1)
+/// 台子的一条货明细 = 产品 + 数量 + 卖价单价。
+/// 行小计 quantity * unitPrice 不落库 —— 落库会与单价改动不一致。
+/// unitPrice 是脱敏字段: 生产角色看不到卖价 (见 src/lib/mask.ts)。
+model DeskItem {
+  id        Int      @id @default(autoincrement())
+  deskId    Int
+  productId Int
+  quantity  Float    @default(0)
+  /// 卖价 (单价)
+  unitPrice Float    @default(0)
+  note      String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  ledger   Ledger   @relation(fields: [ledgerId], references: [id], onDelete: Cascade)
-  siteUser SiteUser @relation(fields: [siteUserId], references: [id], onDelete: Cascade)
+  desk    Desk    @relation(fields: [deskId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
 
-  @@unique([ledgerId, siteUserId])
+  @@index([deskId])
+  @@index([productId])
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 供货方 (上游供应商) —— 成本侧, 与台子结构对称但语义相反
+//   刻意不与 Desk 合并成多态 Counterparty:
+//   (a) 卖价/进价在利润聚合里是加号和减号, 合表后每个聚合都要
+//       where kind, 漏一次就算错利润;
+//   (b) 可见角色完全相反 (销售看台子, 资源/财务看供货方), 分表后
+//       直接靠页面级 403 拦掉, 不用靠脱敏。
+// ═══════════════════════════════════════════════════════════════════
+
+model Supplier {
+  id        Int      @id @default(autoincrement())
+  name      String
+  /// 对接人 (资源管理员或采购)
+  ownerId   Int?
+  projectId Int
+  contact   String   @default("")
+  /// 供货渠道说明 —— 自由文本
+  channel   String   @default("")
+  /// active 合作中 | paused 暂停 | closed 已终止
+  status    String   @default("active")
+  notes     String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner   User?          @relation("SupplierOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  project Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items   SupplierItem[]
+
+  @@index([projectId])
+  @@index([ownerId])
+  @@index([status])
+}
+
+/// 供货方能提供的一种货 + 进货价。
+/// quantity 语义是【已进货数量】, 默认 0 = "仅报价, 尚未进货"。
+/// 项目成本聚合只累加 quantity > 0 的行 —— 报价不是成本, 否则录一个
+/// 供应商报价利润就凭空掉一截。
+/// unitPrice 是脱敏字段: 销售角色看不到进价。
+model SupplierItem {
+  id         Int      @id @default(autoincrement())
+  supplierId Int
+  productId  Int
+  /// 已进货数量; 0 = 仅报价
+  quantity   Float    @default(0)
+  /// 进货价 (单价)
+  unitPrice  Float    @default(0)
+  note       String   @default("")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id])
+
+  @@index([supplierId])
+  @@index([productId])
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 资源域 —— 来源 / 卡 / 代理IP / 邮箱
+//   三类资源刻意用三张独立表而非一张多态表: 字段几乎不重叠 (合表只能
+//   塞 JSON blob, 无法索引也无法做类型约束), 脱敏字段各不相同, 筛选
+//   维度也完全不同。共性通过统一的字段命名约定复用而非共享表:
+//     sourceId / status / projectId / notes / createdAt
+//   status 通用取值: available 可用 | in_use 使用中 | used 已用完 | invalid 失效
+// ═══════════════════════════════════════════════════════════════════
+
+/// 资源来源 —— "这些邮箱/卡/IP 来自于谁的哪个渠道, 以及价格情况"。
+/// 三类单价拆成独立字段而非只有自由文本: 消耗申报和采购要引用它做默认值。
+model ResourceSource {
+  id         Int      @id @default(autoincrement())
+  /// 供应者名字 / 商家名
+  name       String
+  /// 渠道说明 (TG 群 / 网站 / 中间人, 自由文本)
+  channel    String   @default("")
+  /// 适用资源类型, 逗号分隔的 email/proxy/card; 空 = 通用
+  kinds      String   @default("")
+  contact    String   @default("")
+  /// 各类资源的参考单价, 0 = 未报价。脱敏字段 (生产角色不可见)
+  emailPrice Float    @default(0)
+  proxyPrice Float    @default(0)
+  cardPrice  Float    @default(0)
+  /// 价格情况补充说明 —— 自由文本, 多行。脱敏字段
+  priceInfo  String   @default("")
+  active     Boolean  @default(true)
+  notes      String   @default("")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  cards        CardResource[]
+  proxies      ProxyResource[]
+  emails       EmailResource[]
+  purchases    Purchase[]
+  requestItems ResourceRequestItem[]
+
+  @@index([active])
+}
+
+/// 卡资源。cardNo / cvv 是最高敏感级字段, 仅 resource + admin 可见。
+model CardResource {
+  id        Int       @id @default(autoincrement())
+  sourceId  Int?
+  /// 卡号 —— 脱敏字段
+  cardNo    String
+  /// 安全码 —— 脱敏字段
+  cvv       String    @default("")
+  /// 有效期, 存 "MM/YY" 文本而非 DateTime —— 卡面就是这个格式
+  expiry    String    @default("")
+  holder    String    @default("")
+  /// 卡面金额 / 额度 —— 脱敏字段 (生产不可见)
+  amount    Float     @default(0)
+  /// 适用于什么业务 —— 自由文本
+  usage     String    @default("")
+  status    String    @default("available")
+  projectId Int?
+  notes     String    @default("")
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  source  ResourceSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  project Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([sourceId])
+  @@index([status])
+  @@index([projectId])
+}
+
+/// 代理 IP 资源。
+///   protocol —— 网络类型: socks | http
+///   ipType   —— IP 类型:   static 静态 | dynamic 动态
+/// 两个维度【正交】: 动态 IP 同样分 http / socks, 只是出口 IP 会不断
+/// 变化, 所以必须拆成两列而不是一个 "socks5-dynamic" 复合枚举。
+model ProxyResource {
+  id        Int       @id @default(autoincrement())
+  sourceId  Int?
+  /// socks | http
+  protocol  String    @default("socks")
+  /// static | dynamic
+  ipType    String    @default("static")
+  host      String
+  port      Int
+  username  String    @default("")
+  /// 代理密码 —— 脱敏字段 (销售/财务不可见; 生产要用所以可见)
+  password  String    @default("")
+  /// 地区 / 出口国家, 自由文本
+  region    String    @default("")
+  /// 动态 IP 的换 IP 接口地址; 静态 IP 留空
+  rotateUrl String    @default("")
+  expiresAt DateTime?
+  status    String    @default("available")
+  projectId Int?
+  notes     String    @default("")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  source  ResourceSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  project Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([sourceId])
+  @@index([protocol, ipType])
+  @@index([status])
+}
+
+/// 邮箱资源。providerKey 指向代码侧接码插件注册表的 key
+/// (src/lib/mailproviders/registry.ts), 决定用哪个 API 拉收件箱。
+model EmailResource {
+  id           Int      @id @default(autoincrement())
+  sourceId     Int?
+  /// 邮箱类型 = 接码 provider key, 如 "mock" / "outlook"
+  providerKey  String   @default("mock")
+  address      String   @unique
+  /// 邮箱密码 —— 脱敏字段 (销售/财务不可见)
+  password     String   @default("")
+  /// 辅助邮箱 / 恢复信息
+  recoveryInfo String   @default("")
+  status       String   @default("available")
+  projectId    Int?
+  notes        String   @default("")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  source  ResourceSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  project Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([sourceId])
+  @@index([providerKey])
+  @@index([status])
+}
+
+/// 接码 provider 的运行时配置 (API 地址 / token 等)。
+/// provider 的【实现】在代码里 (每个一个 .ts 文件 + 注册表), 这张表只
+/// 存【凭证与开关】。所以加新类型 = 新增一个文件 + 在此表加一行配置,
+/// 不需要改任何 handler, 也不需要改 schema。
+model EmailProviderConfig {
+  id          Int      @id @default(autoincrement())
+  providerKey String   @unique
+  label       String   @default("")
+  enabled     Boolean  @default(true)
+  /// JSON 对象: provider.configFields 声明的键值, 如 {"apiBase":"…","apiKey":"…"}
+  configJson  String   @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 消耗申报 → 采购 的流转
+//   生产提申报单 (这一批用掉了 X 个某来源的邮箱 / Y 个 IP / Z 张卡),
+//   资源管理员或财务确认后据此建采购记录并回写状态。
+//   Purchase.requestId 可空 —— 允许不经申报的直接采购。
+// ═══════════════════════════════════════════════════════════════════
+
+model ResourceRequest {
+  id          Int       @id @default(autoincrement())
+  projectId   Int
+  /// 申报人 (生产)
+  reporterId  Int
+  /// 消耗发生的业务日 "YYYY-MM-DD"
+  periodDate  String
+  /// pending 待处理 | approved 已确认 | purchased 已采购 | rejected 已驳回
+  status      String    @default("pending")
+  note        String    @default("")
+  /// 处理人 (资源管理员/财务/管理员)
+  handledById Int?
+  handledAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project   Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reporter  User                  @relation("RequestReporter", fields: [reporterId], references: [id])
+  handledBy User?                 @relation("RequestHandler", fields: [handledById], references: [id], onDelete: SetNull)
+  items     ResourceRequestItem[]
+  purchases Purchase[]
+
+  @@index([projectId])
+  @@index([reporterId])
+  @@index([status])
+  @@index([periodDate])
+}
+
+/// 申报明细行: 某来源的某类资源用了多少个 (卡还要记金额)。
+/// 刻意【不外键到具体资源行】—— 需求描述的是"多少个什么来源的邮箱"
+/// 这种按来源聚合的量, 不是逐条勾选, 所以 kind + sourceId + quantity
+/// 就够, 也因此完全不需要多态外键。
+model ResourceRequestItem {
+  id        Int    @id @default(autoincrement())
+  requestId Int
+  /// email | proxy | card
+  kind      String
+  sourceId  Int?
+  quantity  Int    @default(0)
+  /// 本行消耗的总金额 (卡类必填, 其余可留 0) —— 脱敏字段
+  amount    Float  @default(0)
+  note      String @default("")
+
+  request ResourceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  source  ResourceSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  @@index([requestId])
+  @@index([kind])
+}
+
+/// 采购记录 —— 项目成本的主要来源。
+/// 需求要求的字段: 类型 / 采购人 / 采购内容 / 花费详情 / 花费总金额 / 归属项目。
+/// "花费详情"用自由文本而非明细子表: 需求只要求"详情"一个描述性字段,
+/// 拆子表是过度设计; 参与计算的只有 totalAmount。
+model Purchase {
+  id           Int      @id @default(autoincrement())
+  projectId    Int
+  /// 由哪张申报单产生; 为空 = 直接采购
+  requestId    Int?
+  /// email | proxy | card | other
+  kind         String
+  purchaserId  Int
+  sourceId     Int?
+  /// 采购内容 —— 自由文本 (如 "outlook 邮箱 200 个")
+  content      String
+  /// 花费详情 —— 自由文本, 多行 —— 脱敏字段
+  detail       String   @default("")
+  quantity     Int      @default(0)
+  /// 花费总金额 —— 脱敏字段, 项目成本聚合的唯一依据
+  totalAmount  Float    @default(0)
+  /// 采购发生日 "YYYY-MM-DD"
+  purchaseDate String
+  notes        String   @default("")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  project   Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  request   ResourceRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  purchaser User             @relation(fields: [purchaserId], references: [id])
+  source    ResourceSource?  @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([requestId])
+  @@index([kind])
+  @@index([purchaseDate])
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 产出批次 —— 仪表盘"生产情况"的数据源
+//   没有这张表, 生产卡片只能显示"申报了几单", 对管理层无意义。
+// ═══════════════════════════════════════════════════════════════════
+
+model ProductionBatch {
+  id         Int      @id @default(autoincrement())
+  projectId  Int
+  productId  Int
+  quantity   Float    @default(0)
+  /// 生产日 "YYYY-MM-DD"
+  batchDate  String
+  /// 生产人
+  operatorId Int
+  note       String   @default("")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  product  Product @relation(fields: [productId], references: [id])
+  operator User    @relation(fields: [operatorId], references: [id])
+
+  @@index([projectId])
+  @@index([productId])
+  @@index([batchDate])
+  @@index([operatorId])
 }
