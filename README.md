@@ -84,7 +84,7 @@ npm run db:reset    # 删库重建 + 播种
 ```bash
 echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
 docker compose up -d --build
-# http://localhost:3180
+# http://localhost:3181
 ```
 
 容器启动时会依次跑 `migrate.mjs` → `seed.mjs` → `server.js`，前两步幂等，重启不会重复建用户。
