@@ -24,19 +24,17 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (!existing) return notFound("采购记录不存在");
 
   const body = (await req.json().catch(() => ({}))) as Partial<{
-    projectId: number;
     kind: string;
     content: string;
     detail: string;
-    quantity: number;
     totalAmount: number;
     purchaseDate: string;
     sourceId: number | null;
-    notes: string;
+    purchaserId: number;
+    purchaserName: string;
   }>;
 
   const data: Record<string, unknown> = {};
-  if (body.projectId !== undefined) data.projectId = Number(body.projectId);
   if (body.kind !== undefined) {
     if (!isOneOf(PURCHASE_KIND, body.kind)) return badRequest("采购类型非法");
     data.kind = body.kind;
@@ -47,7 +45,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     data.content = v;
   }
   if (body.detail !== undefined) data.detail = body.detail;
-  if (body.quantity !== undefined) data.quantity = Number(body.quantity) || 0;
   if (body.totalAmount !== undefined) {
     const v = Number(body.totalAmount);
     if (!Number.isFinite(v) || v < 0) return badRequest("总金额非法");
@@ -58,7 +55,18 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     data.purchaseDate = body.purchaseDate;
   }
   if (body.sourceId !== undefined) data.sourceId = body.sourceId ?? null;
-  if (body.notes !== undefined) data.notes = body.notes;
+  if (body.purchaserName !== undefined) {
+    const purchaserName = body.purchaserName.trim();
+    if (!purchaserName) return badRequest("采购人不能为空");
+    data.purchaserName = purchaserName;
+  }
+  if (body.purchaserId !== undefined) {
+    const purchaserId = Number(body.purchaserId);
+    if (!purchaserId || !(await prisma.user.findFirst({ where: { id: purchaserId, active: true }, select: { id: true } }))) {
+      return badRequest("请选择有效的采购人");
+    }
+    data.purchaserId = purchaserId;
+  }
 
   const item = await prisma.purchase.update({ where: { id }, data, include: INCLUDE });
   return jsonItem("purchase", g.session.role, item);
@@ -74,7 +82,6 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
   const existing = await prisma.purchase.findUnique({ where: { id } });
   if (!existing) return notFound("采购记录不存在");
 
-  // requestId 是 onDelete: SetNull, 删采购不会连带删掉申报单
-  await prisma.purchase.delete({ where: { id } });
+  await prisma.purchase.update({ where: { id }, data: { deletedAt: new Date() } });
   return NextResponse.json({ ok: true });
 }

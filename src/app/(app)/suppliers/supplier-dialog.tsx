@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
-import { useProductOptions, useProjectOptions } from "@/hooks/use-options";
+import { useProjectOptions } from "@/hooks/use-options";
 import { api, mutate } from "@/lib/api-client";
 import { PARTNER_STATUS, PARTNER_STATUS_LABEL, type PartnerStatus } from "@/lib/enums";
 import type { Supplier } from "../desks/types";
@@ -40,29 +40,28 @@ export default function SupplierDialog({
 }) {
   const [name, setName] = useState("");
   const [projectId, setProjectId] = useState("");
-  const [contact, setContact] = useState("");
-  const [channel, setChannel] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
   const [status, setStatus] = useState<PartnerStatus>("active");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<GoodsLine[]>([]);
   const [saving, setSaving] = useState(false);
 
   const projects = useProjectOptions(open);
-  const products = useProductOptions(open);
 
   useEffect(() => {
     if (!open) return;
     setName(initial?.name ?? "");
     setProjectId(initial?.projectId ? String(initial.projectId) : "");
-    setContact(initial?.contact ?? "");
-    setChannel(initial?.channel ?? "");
+    setBaseUrl(initial?.baseUrl ?? "");
     setStatus(initial?.status ?? "active");
     setNotes(initial?.notes ?? "");
     setLines(
       (initial?.items ?? []).map((it) => ({
         key: crypto.randomUUID(),
         productId: it.productId,
-        quantity: it.quantity,
+        productName: it.productName || it.product.name,
+        apiKey: it.apiKey || "",
+        quantity: 0,
         unitPrice: it.unitPrice ?? 0,
         note: it.note,
       })),
@@ -73,19 +72,19 @@ export default function SupplierDialog({
     if (!name.trim()) return toast.warning("请填写供货方名称");
     if (!projectId) return toast.warning("请选择归属项目");
 
-    const bad = lines.findIndex((l) => !l.productId);
-    if (bad >= 0) return toast.warning(`第 ${bad + 1} 行未选择产品`);
+    const bad = lines.findIndex((l) => !l.productName.trim());
+    if (bad >= 0) return toast.warning(`第 ${bad + 1} 行未填写产品`);
 
     const payload = {
       name: name.trim(),
       projectId: Number(projectId),
-      contact,
-      channel,
+      baseUrl: baseUrl.trim(),
       status,
       notes,
       items: lines.map((l) => ({
-        productId: l.productId!,
-        quantity: l.quantity,
+        productName: l.productName.trim(),
+        apiKey: l.apiKey,
+        quantity: 0,
         unitPrice: l.unitPrice,
         note: l.note,
       })),
@@ -133,7 +132,7 @@ export default function SupplierDialog({
                 <SelectContent>
                   {projects.map((p) => (
                     <SelectItem key={p.id} value={String(p.id)}>
-                      {p.code} · {p.name}
+                      {p.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -141,7 +140,7 @@ export default function SupplierDialog({
             </Field>
           </div>
 
-          <div className="grid sm:grid-cols-3 gap-3">
+          <div className="grid sm:grid-cols-2 gap-3">
             <Field label="状态">
               <Select value={status} onValueChange={(v) => setStatus(v as PartnerStatus)}>
                 <SelectTrigger>
@@ -156,20 +155,7 @@ export default function SupplierDialog({
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="联系方式">
-              <Input
-                value={contact}
-                onChange={(e) => setContact(e.target.value)}
-                placeholder="TG / 微信"
-              />
-            </Field>
-            <Field label="供货渠道">
-              <Input
-                value={channel}
-                onChange={(e) => setChannel(e.target.value)}
-                placeholder="TG 群 / 网站"
-              />
-            </Field>
+            <Field label="Base URL"><Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.example.com" /></Field>
           </div>
 
           <Separator />
@@ -181,10 +167,8 @@ export default function SupplierDialog({
             <GoodsLines
               value={lines}
               onChange={setLines}
-              products={products}
               priceLabel="进货价"
-              qtyLabel="已进货量"
-              qtyHint="已进货量填 0 表示「仅报价、尚未进货」——只有大于 0 的行才计入项目成本。"
+              showKey
             />
           </div>
 

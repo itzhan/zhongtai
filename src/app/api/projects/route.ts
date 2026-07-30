@@ -38,19 +38,17 @@ export async function POST(req: Request) {
     name: string;
     status: string;
     ownerId: number | null;
+    ownerName: string;
     description: string;
   }>;
 
-  const code = (body.code ?? "").trim();
   const name = (body.name ?? "").trim();
-  if (!code) return badRequest("请填写项目代号");
   if (!name) return badRequest("请填写项目名称");
   if (body.status !== undefined && !isOneOf(PROJECT_STATUS, body.status)) {
     return badRequest("状态非法");
   }
 
-  const dup = await prisma.project.findUnique({ where: { code } });
-  if (dup) return NextResponse.json({ error: "项目代号已存在" }, { status: 409 });
+  const code = `PROJECT-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
   const item = await prisma.project.create({
     data: {
@@ -58,6 +56,7 @@ export async function POST(req: Request) {
       name,
       status: body.status ?? "active",
       ownerId: body.ownerId ?? null,
+      ownerName: (body.ownerName ?? "").trim(),
       description: body.description ?? "",
     },
     include: INCLUDE,

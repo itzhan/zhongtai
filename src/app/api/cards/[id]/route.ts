@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { badRequest, notFound, parseId, requireRoleFresh } from "@/lib/guard";
-import { isOneOf, RESOURCE_STATUS } from "@/lib/enums";
+import { CARD_STATUS, isOneOf } from "@/lib/enums";
 import { jsonItem } from "@/lib/mask";
 import { ROLES } from "@/lib/rbac";
 
@@ -50,7 +50,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (body.projectId !== undefined) data.projectId = body.projectId ?? null;
   if (body.notes !== undefined) data.notes = body.notes;
   if (body.status !== undefined) {
-    if (!isOneOf(RESOURCE_STATUS, body.status)) return badRequest("状态非法");
+    if (!isOneOf(CARD_STATUS, body.status)) return badRequest("状态非法");
     data.status = body.status;
     // 标记为已用完时顺手记录时间, 便于后续对账
     if (body.status === "used" && !existing.usedAt) data.usedAt = new Date();
@@ -70,6 +70,6 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
   const existing = await prisma.cardResource.findUnique({ where: { id } });
   if (!existing) return notFound("卡不存在");
 
-  await prisma.cardResource.delete({ where: { id } });
+  await prisma.cardResource.update({ where: { id }, data: { deletedAt: new Date() } });
   return NextResponse.json({ ok: true });
 }

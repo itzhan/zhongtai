@@ -3,6 +3,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Boxes,
+  ClipboardList,
   Factory,
   FolderKanban,
   LayoutDashboard,
@@ -32,6 +33,7 @@ export const ICONS: Record<IconKey, LucideIcon> = {
   desk: Store,
   supplier: Truck,
   resource: Boxes,
+  allocation: ClipboardList,
   production: Factory,
   purchase: ShoppingCart,
   settings: Settings,

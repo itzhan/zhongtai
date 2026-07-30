@@ -1,9 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { KeyRound, Loader2, MoreHorizontal, Plus } from "lucide-react";
+import { KeyRound, Loader2, MoreHorizontal, Plus, RotateCcw, Trash2 } from "lucide-react";
 import DataState from "@/components/DataState";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import RecordDetailDialog from "@/components/RecordDetailDialog";
 import PageHeader from "@/components/PageHeader";
 import { useSession } from "@/components/RoleProvider";
 import { Badge } from "@/components/ui/badge";
@@ -43,7 +44,7 @@ import {
 } from "@/components/ui/table";
 import { useList } from "@/hooks/use-list";
 import { api, mutate } from "@/lib/api-client";
-import { fmtDay } from "@/lib/format";
+import { fmtDate, fmtDay } from "@/lib/format";
 import { ALL_ROLES, ROLE_LABEL, ROLES, type Role } from "@/lib/rbac";
 
 interface ManagedUser {
@@ -67,6 +68,7 @@ export default function SettingsPage() {
       <Tabs defaultValue={isAdmin ? "users" : "account"}>
         <TabsList>
           {isAdmin && <TabsTrigger value="users">用户与角色</TabsTrigger>}
+          {isAdmin && <TabsTrigger value="trash">回收站</TabsTrigger>}
           <TabsTrigger value="account">我的账号</TabsTrigger>
         </TabsList>
 
@@ -75,6 +77,7 @@ export default function SettingsPage() {
             <UsersPanel />
           </TabsContent>
         )}
+        {isAdmin && <TabsContent value="trash" className="mt-4"><RecycleBin /></TabsContent>}
 
         <TabsContent value="account" className="mt-4">
           <AccountPanel />
@@ -84,6 +87,13 @@ export default function SettingsPage() {
   );
 }
 
+interface TrashItem { id: number; entity: string; entityLabel: string; name: string; deletedAt: string }
+function RecycleBin() {
+  const { items, loading, error, reload } = useList<TrashItem>("/api/trash");
+  const [viewing, setViewing] = useState<TrashItem | null>(null);
+  return <><Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><Trash2 size={17} />回收站</CardTitle><CardDescription>删除的数据会保留在这里，可随时恢复。</CardDescription></CardHeader><CardContent className="p-0"><DataState loading={loading} error={error} empty={!items.length} emptyText="回收站为空" onRetry={reload}><Table><TableHeader><TableRow><TableHead>类型</TableHead><TableHead>记录</TableHead><TableHead>删除时间</TableHead><TableHead className="w-20" /></TableRow></TableHeader><TableBody>{items.map((item) => <TableRow key={`${item.entity}-${item.id}`} className="cursor-pointer" onClick={() => setViewing(item)}><TableCell><Badge variant="secondary">{item.entityLabel}</Badge></TableCell><TableCell className="font-medium">{item.name}</TableCell><TableCell className="font-mono text-xs text-muted-foreground">{fmtDate(item.deletedAt)}</TableCell><TableCell onClick={(event) => event.stopPropagation()}><Button size="sm" variant="outline" onClick={async () => { const ok = await mutate(() => api.post("/api/trash", { entity: item.entity, id: item.id }), { success: "已恢复", error: "恢复失败" }); if (ok) reload(); }}><RotateCcw size={14} />恢复</Button></TableCell></TableRow>)}</TableBody></Table></DataState></CardContent></Card><RecordDetailDialog open={viewing !== null} onOpenChange={(value) => !value && setViewing(null)} title="删除记录详情" fields={viewing ? [{ label: "类型", value: viewing.entityLabel }, { label: "记录", value: viewing.name }, { label: "原始 ID", value: viewing.id }, { label: "删除时间", value: fmtDate(viewing.deletedAt) }] : []} /></>;
+}
+
 function UsersPanel() {
   const session = useSession();
   const { items, loading, error, reload } = useList<ManagedUser>("/api/users");
@@ -91,6 +101,7 @@ function UsersPanel() {
   const [open, setOpen] = useState(false);
   const [resetting, setResetting] = useState<ManagedUser | null>(null);
   const [deleting, setDeleting] = useState<ManagedUser | null>(null);
+  const [viewing, setViewing] = useState<ManagedUser | null>(null);
 
   async function patchUser(u: ManagedUser, data: Partial<ManagedUser>) {
     const ok = await mutate(() => api.patch(`/api/users/${u.id}`, data), {
@@ -133,7 +144,7 @@ function UsersPanel() {
                 {items.map((u) => {
                   const isSelf = u.id === session.id;
                   return (
-                    <TableRow key={u.id}>
+                    <TableRow key={u.id} className="cursor-pointer" onClick={() => setViewing(u)}>
                       <TableCell className="font-mono text-xs">{u.username}</TableCell>
                       <TableCell className="font-medium">
                         {u.displayName}
@@ -141,7 +152,7 @@ function UsersPanel() {
                           <span className="text-[11px] text-muted-foreground ml-1.5">（我）</span>
                         )}
                       </TableCell>
-                      <TableCell>
+                      <TableCell onClick={(event) => event.stopPropagation()}>
                         {/* 角色用下拉直改, 不必进编辑弹窗 */}
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild disabled={isSelf}>
@@ -163,7 +174,7 @@ function UsersPanel() {
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
-                      <TableCell>
+                      <TableCell onClick={(event) => event.stopPropagation()}>
                         <Switch
                           checked={u.active}
                           disabled={isSelf}
@@ -173,7 +184,7 @@ function UsersPanel() {
                       <TableCell className="text-muted-foreground text-xs">
                         {fmtDay(u.createdAt)}
                       </TableCell>
-                      <TableCell>
+                      <TableCell onClick={(event) => event.stopPropagation()}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button size="icon-sm" variant="ghost" aria-label="更多">
@@ -206,6 +217,7 @@ function UsersPanel() {
       </Card>
 
       <NewUserDialog open={open} onOpenChange={setOpen} onSaved={reload} />
+      <RecordDetailDialog open={viewing !== null} onOpenChange={(v) => !v && setViewing(null)} title="用户详情" fields={viewing ? [{ label: "用户名", value: viewing.username }, { label: "姓名", value: viewing.displayName }, { label: "角色", value: ROLE_LABEL[viewing.role] }, { label: "状态", value: viewing.active ? "启用" : "停用" }, { label: "创建时间", value: fmtDay(viewing.createdAt) }, { label: "备注", value: viewing.note, wide: true }] : []} />
       <ResetPasswordDialog
         user={resetting}
         onOpenChange={(v) => !v && setResetting(null)}
@@ -216,11 +228,11 @@ function UsersPanel() {
         open={deleting !== null}
         onOpenChange={(v) => !v && setDeleting(null)}
         title={`删除用户「${deleting?.displayName ?? ""}」？`}
-        description="已关联业务数据的用户删不掉，请改用「停用」。"
+        description="删除后用户会立即停用并进入回收站，恢复时重新启用。"
         onConfirm={async () => {
           if (!deleting) return;
           const ok = await mutate(() => api.del(`/api/users/${deleting.id}`), {
-            success: "已删除",
+            success: "已移至回收站",
             error: "删除失败",
           });
           setDeleting(null);

@@ -16,6 +16,7 @@ export type IconKey =
   | "desk"
   | "supplier"
   | "resource"
+  | "allocation"
   | "production"
   | "purchase"
   | "settings";
@@ -81,13 +82,12 @@ export const NAV: NavEntry[] = [
     items: [
       {
         href: "/production/batches",
-        match: "/production",
+        match: "/production/batches",
         label: "生产管理",
         icon: "production",
         roles: [PRODUCTION, RESOURCE, FINANCE],
         sub: [
           { href: "/production/batches", label: "产出批次", roles: [PRODUCTION, FINANCE] },
-          { href: "/production/requests", label: "消耗申报" },
         ],
       },
       {
@@ -95,14 +95,26 @@ export const NAV: NavEntry[] = [
         match: "/resources",
         label: "资源库",
         icon: "resource",
-        // 整体放行给生产/财务, 卡号 CVV 与价格靠 src/lib/mask.ts 字段脱敏挡住
-        roles: [RESOURCE, PRODUCTION, FINANCE],
+        // 整体放行给生产/财务，资源价格和账号密码由 API 层脱敏。
+        roles: [RESOURCE, FINANCE],
         sub: [
           { href: "/resources/cards", label: "卡", roles: [RESOURCE, FINANCE] },
           { href: "/resources/proxies", label: "代理 IP" },
           { href: "/resources/emails", label: "邮箱" },
-          { href: "/resources/sources", label: "来源" },
         ],
+      },
+      { href: "/production/resources", label: "批次资源", icon: "resource", roles: [PRODUCTION] },
+      {
+        href: "/resource-suppliers",
+        label: "资源供应商",
+        icon: "supplier",
+        roles: [RESOURCE, FINANCE],
+      },
+      {
+        href: "/resource-allocations",
+        label: "分配记录",
+        icon: "allocation",
+        roles: [RESOURCE, PRODUCTION, FINANCE],
       },
       { href: "/purchases", label: "采购记录", icon: "purchase", roles: [RESOURCE, FINANCE] },
     ],
@@ -114,7 +126,7 @@ export const NAV: NavEntry[] = [
         href: "/settings",
         label: "设置",
         icon: "settings",
-        roles: [SALES, PRODUCTION, FINANCE, RESOURCE],
+        roles: [SALES, FINANCE, RESOURCE],
       },
     ],
   },

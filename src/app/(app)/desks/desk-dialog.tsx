@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
-import { useProductOptions, useProjectOptions, useUserOptions } from "@/hooks/use-options";
+import { useProjectOptions, useUserOptions } from "@/hooks/use-options";
 import { api, mutate } from "@/lib/api-client";
 import { PARTNER_STATUS, PARTNER_STATUS_LABEL, type PartnerStatus } from "@/lib/enums";
 import { ROLES } from "@/lib/rbac";
@@ -46,7 +46,7 @@ export default function DeskDialog({
   const [name, setName] = useState("");
   const [projectId, setProjectId] = useState("");
   const [ownerId, setOwnerId] = useState("");
-  const [contact, setContact] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
   const [demand, setDemand] = useState("");
   const [status, setStatus] = useState<PartnerStatus>("active");
   const [notes, setNotes] = useState("");
@@ -54,7 +54,6 @@ export default function DeskDialog({
   const [saving, setSaving] = useState(false);
 
   const projects = useProjectOptions(open);
-  const products = useProductOptions(open);
   const sales = useUserOptions(ROLES.SALES, open && !isSales);
 
   useEffect(() => {
@@ -62,7 +61,7 @@ export default function DeskDialog({
     setName(initial?.name ?? "");
     setProjectId(initial?.projectId ? String(initial.projectId) : "");
     setOwnerId(String(initial?.ownerId ?? session.id));
-    setContact(initial?.contact ?? "");
+    setBaseUrl(initial?.baseUrl ?? "");
     setDemand(initial?.demand ?? "");
     setStatus(initial?.status ?? "active");
     setNotes(initial?.notes ?? "");
@@ -70,7 +69,9 @@ export default function DeskDialog({
       (initial?.items ?? []).map((it) => ({
         key: crypto.randomUUID(),
         productId: it.productId,
-        quantity: it.quantity,
+        productName: it.productName || it.product.name,
+        apiKey: "",
+        quantity: 0,
         unitPrice: it.unitPrice ?? 0,
         note: it.note,
       })),
@@ -81,20 +82,20 @@ export default function DeskDialog({
     if (!name.trim()) return toast.warning("请填写台子名称");
     if (!projectId) return toast.warning("请选择归属项目");
 
-    const bad = lines.findIndex((l) => !l.productId);
-    if (bad >= 0) return toast.warning(`第 ${bad + 1} 行未选择产品`);
+    const bad = lines.findIndex((l) => !l.productName.trim());
+    if (bad >= 0) return toast.warning(`第 ${bad + 1} 行未填写产品`);
 
     const payload = {
       name: name.trim(),
       projectId: Number(projectId),
       ...(isSales ? {} : { ownerId: Number(ownerId) }),
-      contact,
+      baseUrl: baseUrl.trim(),
       demand,
       status,
       notes,
       items: lines.map((l) => ({
-        productId: l.productId!,
-        quantity: l.quantity,
+        productName: l.productName.trim(),
+        quantity: 0,
         unitPrice: l.unitPrice,
         note: l.note,
       })),
@@ -154,7 +155,7 @@ export default function DeskDialog({
             </Field>
           </div>
 
-          <div className="grid sm:grid-cols-3 gap-3">
+          <div className="grid sm:grid-cols-2 gap-3">
             <Field label="归属项目" required>
               <Select value={projectId} onValueChange={setProjectId}>
                 <SelectTrigger>
@@ -163,7 +164,7 @@ export default function DeskDialog({
                 <SelectContent>
                   {projects.map((p) => (
                     <SelectItem key={p.id} value={String(p.id)}>
-                      {p.code} · {p.name}
+                      {p.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -183,13 +184,7 @@ export default function DeskDialog({
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="联系方式">
-              <Input
-                value={contact}
-                onChange={(e) => setContact(e.target.value)}
-                placeholder="TG / 微信"
-              />
-            </Field>
+            <Field label="Base URL"><Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.example.com" /></Field>
           </div>
 
           <Field label="需求说明" hint="文字描述，结构化的量价填在下方明细里">
@@ -205,7 +200,6 @@ export default function DeskDialog({
             <GoodsLines
               value={lines}
               onChange={setLines}
-              products={products}
               priceLabel="卖价"
             />
           </div>

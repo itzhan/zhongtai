@@ -15,6 +15,7 @@ import {
 import CategoryBarChart from "@/components/charts/CategoryBarChart";
 import DataState from "@/components/DataState";
 import PageHeader from "@/components/PageHeader";
+import RecordDetailDialog, { type DetailField } from "@/components/RecordDetailDialog";
 import StatCard from "@/components/StatCard";
 import { useSession } from "@/components/RoleProvider";
 import { Badge } from "@/components/ui/badge";
@@ -94,6 +95,7 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<{ title: string; fields: DetailField[] } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -167,7 +169,7 @@ export default function DashboardPage() {
                   </TableHeader>
                   <TableBody>
                     {b.projectProfits.map((p) => (
-                      <TableRow key={p.id}>
+                      <TableRow key={p.id} className="cursor-pointer" onClick={() => setViewing({ title: "项目利润详情", fields: [{ label: "项目", value: p.name }, { label: "收入", value: fmtMoneyShort(p.revenue) }, { label: "成本", value: fmtMoneyShort(p.cost) }, { label: "利润", value: fmtMoneyShort(p.profit) }, { label: "利润率", value: `${(p.margin * 100).toFixed(1)}%` }] })}>
                         <TableCell className="font-medium">
                           <Link
                             href={`/projects/${p.id}`}
@@ -175,9 +177,6 @@ export default function DashboardPage() {
                           >
                             {p.name}
                           </Link>
-                          <span className="text-xs text-muted-foreground ml-2 font-mono">
-                            {p.code}
-                          </span>
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {fmtMoneyShort(p.revenue)}
@@ -224,7 +223,7 @@ export default function DashboardPage() {
                     </TableHeader>
                     <TableBody>
                       {b.desks.map((d) => (
-                        <TableRow key={d.id}>
+                        <TableRow key={d.id} className="cursor-pointer" onClick={() => setViewing({ title: "台子概览详情", fields: [{ label: "台子", value: d.name }, { label: "归属销售", value: d.owner }, { label: "项目", value: d.project }, { label: "需求项目", value: `${d.itemCount} 项` }, { label: "卖价", value: fmtMoneyShort(d.amount) }] })}>
                           <TableCell className="font-medium">{d.name}</TableCell>
                           <TableCell className="text-muted-foreground text-xs">{d.owner}</TableCell>
                           <TableCell className="text-right tabular-nums">
@@ -298,7 +297,7 @@ export default function DashboardPage() {
                   { label: "可用邮箱", value: b.resources.email, href: "/resources/emails" },
                   { label: "可用代理 IP", value: b.resources.proxy, href: "/resources/proxies" },
                   { label: "可用卡", value: b.resources.card, href: "/resources/cards" },
-                  { label: "启用来源", value: b.resources.sources, href: "/resources/sources" },
+                  { label: "供应商渠道", value: b.resources.sources, href: "/resource-suppliers" },
                 ].map((r) => (
                   <Link
                     key={r.label}
@@ -316,6 +315,7 @@ export default function DashboardPage() {
           )}
         </div>
       </DataState>
+      <RecordDetailDialog open={viewing !== null} onOpenChange={(value) => !value && setViewing(null)} title={viewing?.title ?? "详情"} fields={viewing?.fields ?? []} />
     </>
   );
 }

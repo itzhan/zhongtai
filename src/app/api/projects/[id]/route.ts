@@ -37,6 +37,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     name: string;
     status: string;
     ownerId: number | null;
+    ownerName: string;
     description: string;
   }>;
 
@@ -60,6 +61,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     data.status = body.status;
   }
   if (body.ownerId !== undefined) data.ownerId = body.ownerId ?? null;
+  if (body.ownerName !== undefined) data.ownerName = body.ownerName.trim();
   if (body.description !== undefined) data.description = body.description;
 
   const item = await prisma.project.update({ where: { id }, data, include: INCLUDE });
@@ -88,6 +90,6 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
     );
   }
 
-  await prisma.project.delete({ where: { id } });
+  await prisma.project.update({ where: { id }, data: { deletedAt: new Date() } });
   return NextResponse.json({ ok: true });
 }

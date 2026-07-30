@@ -1,11 +1,13 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Boxes, Factory, Loader2, MoreHorizontal, Plus, Users } from "lucide-react";
+import { Boxes, Factory, Loader2, MoreHorizontal, Plus, Upload, Users } from "lucide-react";
 import DataState from "@/components/DataState";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import RecordDetailDialog from "@/components/RecordDetailDialog";
 import RoleGate from "@/components/RoleGate";
 import StatCard from "@/components/StatCard";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -42,6 +44,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useList } from "@/hooks/use-list";
 import { useProductOptions, useProjectOptions } from "@/hooks/use-options";
 import { api, mutate } from "@/lib/api-client";
+import { BATCH_STATUS, BATCH_STATUS_LABEL, BATCH_STATUS_VARIANT, type BatchStatus } from "@/lib/enums";
 import { todayStr } from "@/lib/format";
 import { ROLES } from "@/lib/rbac";
 import type { ProductionBatch } from "../types";
@@ -52,10 +55,11 @@ export default function BatchesPage() {
   const [projectId, setProjectId] = useState("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [status, setStatus] = useState("all");
 
   const path = useMemo(
-    () => `/api/batches?${new URLSearchParams({ projectId, from, to }).toString()}`,
-    [projectId, from, to],
+    () => `/api/batches?${new URLSearchParams({ projectId, from, to, status }).toString()}`,
+    [projectId, from, to, status],
   );
   const { items, loading, error, reload } = useList<ProductionBatch>(path);
   const projects = useProjectOptions();
@@ -63,6 +67,7 @@ export default function BatchesPage() {
   const [editing, setEditing] = useState<ProductionBatch | null>(null);
   const [open, setOpen] = useState(false);
   const [deleting, setDeleting] = useState<ProductionBatch | null>(null);
+  const [viewing, setViewing] = useState<ProductionBatch | null>(null);
 
   const stats = useMemo(() => {
     const qty = items.reduce((s, b) => s + b.quantity, 0);
@@ -81,11 +86,12 @@ export default function BatchesPage() {
             <SelectItem value="all">全部项目</SelectItem>
             {projects.map((p) => (
               <SelectItem key={p.id} value={String(p.id)}>
-                {p.code} · {p.name}
+                {p.name}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
+        <Select value={status} onValueChange={setStatus}><SelectTrigger className="w-32"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部状态</SelectItem>{BATCH_STATUS.map((value) => <SelectItem key={value} value={value}>{BATCH_STATUS_LABEL[value]}</SelectItem>)}</SelectContent></Select>
         <Input
           type="date"
           className="w-40"
@@ -146,13 +152,15 @@ export default function BatchesPage() {
                   <TableHead className="text-right">数量</TableHead>
                   <TableHead>生产人</TableHead>
                   <TableHead>项目</TableHead>
+                  <TableHead>状态</TableHead>
+                  <TableHead>产出信息</TableHead>
                   <TableHead>备注</TableHead>
                   <TableHead className="w-10" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {items.map((b) => (
-                  <TableRow key={b.id}>
+                  <TableRow key={b.id} className="cursor-pointer" onClick={() => setViewing(b)}>
                     <TableCell className="font-mono text-xs">{b.batchDate}</TableCell>
                     <TableCell className="font-medium">{b.product.name}</TableCell>
                     <TableCell className="text-right tabular-nums font-medium">
@@ -164,12 +172,18 @@ export default function BatchesPage() {
                     <TableCell className="text-muted-foreground text-xs">
                       {b.project.name}
                     </TableCell>
+                    <TableCell><Badge variant={BATCH_STATUS_VARIANT[b.status]}>{BATCH_STATUS_LABEL[b.status]}</Badge></TableCell>
+                    <TableCell className="max-w-[260px]">
+                      <p className="truncate font-mono text-xs text-muted-foreground" title={b.resultData || ""}>
+                        {b.resultData ? `${b.resultData.split(/\r?\n/).filter(Boolean).length} 条 · ${b.resultData.replace(/\s+/g, " ")}` : "-"}
+                      </p>
+                    </TableCell>
                     <TableCell className="text-muted-foreground text-xs truncate max-w-[200px]">
                       {b.note || "-"}
                     </TableCell>
-                    <TableCell>
+                    <TableCell onClick={(event) => event.stopPropagation()}>
                       <RoleGate roles={EDITORS}>
-                        <DropdownMenu>
+                        <DropdownMenu modal={false}>
                           <DropdownMenuTrigger asChild>
                             <Button size="icon-sm" variant="ghost" aria-label="更多">
                               <MoreHorizontal size={16} />
@@ -177,7 +191,7 @@ export default function BatchesPage() {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem
-                              onClick={() => {
+                              onSelect={() => {
                                 setEditing(b);
                                 setOpen(true);
                               }}
@@ -186,7 +200,7 @@ export default function BatchesPage() {
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-destructive"
-                              onClick={() => setDeleting(b)}
+                              onSelect={() => setDeleting(b)}
                             >
                               删除
                             </DropdownMenuItem>
@@ -203,15 +217,17 @@ export default function BatchesPage() {
       </Card>
 
       <BatchDialog open={open} onOpenChange={setOpen} initial={editing} onSaved={reload} />
+      <RecordDetailDialog open={viewing !== null} onOpenChange={(v) => !v && setViewing(null)} title="产出批次详情" fields={viewing ? [{ label: "生产日期", value: viewing.batchDate }, { label: "状态", value: BATCH_STATUS_LABEL[viewing.status] }, { label: "生产人", value: viewing.operator.displayName }, { label: "项目", value: viewing.project.name }, { label: "产品", value: viewing.product.name }, { label: "产出数量", value: viewing.quantity.toLocaleString("en-US") }, { label: "备注", value: viewing.note }, { label: "产出信息", value: <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded border bg-muted/30 p-3 font-mono text-xs">{viewing.resultData || "-"}</pre>, wide: true }] : []} />
 
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(v) => !v && setDeleting(null)}
         title="删除这条产出记录？"
+        description="删除后将进入回收站，可随时恢复。"
         onConfirm={async () => {
           if (!deleting) return;
           const ok = await mutate(() => api.del(`/api/batches/${deleting.id}`), {
-            success: "已删除",
+            success: "已移至回收站",
             error: "删除失败",
           });
           setDeleting(null);
@@ -237,7 +253,9 @@ function BatchDialog({
   const [productId, setProductId] = useState("");
   const [quantity, setQuantity] = useState("");
   const [batchDate, setBatchDate] = useState("");
+  const [status, setStatus] = useState<BatchStatus>("in_use");
   const [note, setNote] = useState("");
+  const [resultData, setResultData] = useState("");
   const [saving, setSaving] = useState(false);
 
   const projects = useProjectOptions(open);
@@ -249,7 +267,9 @@ function BatchDialog({
     setProductId(initial?.productId ? String(initial.productId) : "");
     setQuantity(initial?.quantity ? String(initial.quantity) : "");
     setBatchDate(initial?.batchDate ?? todayStr());
+    setStatus(initial?.status ?? "in_use");
     setNote(initial?.note ?? "");
+    setResultData(initial?.resultData ?? "");
   }, [open, initial]);
 
   async function save() {
@@ -257,13 +277,16 @@ function BatchDialog({
     if (!productId) return toast.warning("请选择产品");
     const q = Number(quantity);
     if (!Number.isFinite(q) || q <= 0) return toast.warning("产出数量需大于 0");
+    if (!resultData.trim()) return toast.warning("请上传或填写本次产出信息");
 
     const payload = {
       projectId: Number(projectId),
       productId: Number(productId),
       quantity: q,
       batchDate,
+      status,
       note,
+      resultData,
     };
 
     setSaving(true);
@@ -301,7 +324,7 @@ function BatchDialog({
                 <SelectContent>
                   {projects.map((p) => (
                     <SelectItem key={p.id} value={String(p.id)}>
-                      {p.code} · {p.name}
+                      {p.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -322,6 +345,8 @@ function BatchDialog({
               </Select>
             </Field>
           </div>
+
+          <Field label="批次状态" required><Select value={status} onValueChange={(value) => setStatus(value as BatchStatus)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{BATCH_STATUS.map((value) => <SelectItem key={value} value={value}>{BATCH_STATUS_LABEL[value]}</SelectItem>)}</SelectContent></Select></Field>
 
           <div className="grid sm:grid-cols-2 gap-3">
             <Field label="产出数量" required>
@@ -345,6 +370,33 @@ function BatchDialog({
 
           <Field label="备注">
             <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
+          </Field>
+
+          <Field label="产出信息" required hint="支持直接粘贴 SK，或选择 .txt / .csv 文件读取">
+            <div className="space-y-2">
+              <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium hover:bg-accent">
+                <Upload size={14} />选择文件
+                <input
+                  type="file"
+                  accept=".txt,.csv,text/plain,text/csv"
+                  className="sr-only"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setResultData(await file.text());
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              <Textarea
+                rows={8}
+                className="font-mono text-xs"
+                value={resultData}
+                onChange={(e) => setResultData(e.target.value)}
+                placeholder={"sk-...\nsk-..."}
+              />
+              <p className="text-xs text-muted-foreground">已读取 {resultData.split(/\r?\n/).filter((v) => v.trim()).length} 条</p>
+            </div>
           </Field>
         </div>
 

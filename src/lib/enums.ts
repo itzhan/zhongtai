@@ -56,6 +56,19 @@ export const RESOURCE_STATUS_VARIANT: Record<ResourceStatus, BadgeVariant> = {
   invalid: "destructive",
 };
 
+export const CARD_STATUS = ["available", "invalid", "used"] as const;
+export type CardStatus = (typeof CARD_STATUS)[number];
+export const CARD_STATUS_LABEL: Record<CardStatus, string> = {
+  available: "可用",
+  invalid: "异常",
+  used: "已使用",
+};
+export const CARD_STATUS_VARIANT: Record<CardStatus, BadgeVariant> = {
+  available: "success",
+  invalid: "destructive",
+  used: "secondary",
+};
+
 /// 资源类别 —— 来源、申报明细、采购记录共用
 export const RESOURCE_KIND = ["email", "proxy", "card"] as const;
 export type ResourceKind = (typeof RESOURCE_KIND)[number];
@@ -86,6 +99,19 @@ export const REQUEST_STATUS_VARIANT: Record<RequestStatus, BadgeVariant> = {
   approved: "info",
   purchased: "success",
   rejected: "destructive",
+};
+
+export const BATCH_STATUS = ["in_use", "banned", "refunded"] as const;
+export type BatchStatus = (typeof BATCH_STATUS)[number];
+export const BATCH_STATUS_LABEL: Record<BatchStatus, string> = {
+  in_use: "使用中",
+  banned: "已封号",
+  refunded: "已退款",
+};
+export const BATCH_STATUS_VARIANT: Record<BatchStatus, BadgeVariant> = {
+  in_use: "success",
+  banned: "destructive",
+  refunded: "warning",
 };
 
 export const PROXY_PROTOCOL = ["socks", "http"] as const;

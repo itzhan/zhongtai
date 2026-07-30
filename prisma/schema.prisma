@@ -38,16 +38,19 @@ model User {
   /// requireRoleFresh 复查本字段, 所以停用后立即写不了数据。
   active       Boolean  @default(true)
   note         String   @default("")
+  deletedAt    DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  ownedProjects     Project[]         @relation("ProjectOwner")
-  ownedDesks        Desk[]            @relation("DeskOwner")
-  ownedSuppliers    Supplier[]        @relation("SupplierOwner")
-  purchases         Purchase[]
-  reportedRequests  ResourceRequest[] @relation("RequestReporter")
-  handledRequests   ResourceRequest[] @relation("RequestHandler")
-  productionBatches ProductionBatch[]
+  ownedProjects       Project[]            @relation("ProjectOwner")
+  ownedDesks          Desk[]               @relation("DeskOwner")
+  ownedSuppliers      Supplier[]           @relation("SupplierOwner")
+  purchases           Purchase[]
+  reportedRequests    ResourceRequest[]    @relation("RequestReporter")
+  handledRequests     ResourceRequest[]    @relation("RequestHandler")
+  productionBatches   ProductionBatch[]
+  receivedAllocations ResourceAllocation[] @relation("AllocationAssignee")
+  createdAllocations  ResourceAllocation[] @relation("AllocationCreator")
 
   @@index([role])
 }
@@ -69,21 +72,24 @@ model Project {
   status      String   @default("active")
   /// 项目负责人 (通常是销售或管理员)
   ownerId     Int?
+  ownerName   String   @default("")
   description String   @default("")
   startedAt   DateTime @default(now())
+  deletedAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  owner     User?             @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  products  Product[]
-  desks     Desk[]
-  suppliers Supplier[]
-  purchases Purchase[]
-  requests  ResourceRequest[]
-  batches   ProductionBatch[]
-  cards     CardResource[]
-  proxies   ProxyResource[]
-  emails    EmailResource[]
+  owner       User?                @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  products    Product[]
+  desks       Desk[]
+  suppliers   Supplier[]
+  purchases   Purchase[]
+  requests    ResourceRequest[]
+  batches     ProductionBatch[]
+  cards       CardResource[]
+  proxies     ProxyResource[]
+  emails      EmailResource[]
+  allocations ResourceAllocation[]
 
   @@index([status])
   @@index([ownerId])
@@ -107,6 +113,7 @@ model Product {
   projectId Int?
   notes     String   @default("")
   sortOrder Int      @default(0)
+  deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -134,11 +141,13 @@ model Desk {
   projectId Int
   /// 联系方式 (TG / 微信 / 邮箱, 自由文本)
   contact   String   @default("")
+  baseUrl   String   @default("")
   /// 货的需求情况 —— 自由文本, 多行。结构化的量价在 items 里
   demand    String   @default("")
   /// active 合作中 | paused 暂停 | closed 已终止
   status    String   @default("active")
   notes     String   @default("")
+  deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -158,6 +167,7 @@ model DeskItem {
   id        Int      @id @default(autoincrement())
   deskId    Int
   productId Int
+  productName String @default("")
   quantity  Float    @default(0)
   /// 卖价 (单价)
   unitPrice Float    @default(0)
@@ -188,11 +198,13 @@ model Supplier {
   ownerId   Int?
   projectId Int
   contact   String   @default("")
+  baseUrl   String   @default("")
   /// 供货渠道说明 —— 自由文本
   channel   String   @default("")
   /// active 合作中 | paused 暂停 | closed 已终止
   status    String   @default("active")
   notes     String   @default("")
+  deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -214,6 +226,8 @@ model SupplierItem {
   id         Int      @id @default(autoincrement())
   supplierId Int
   productId  Int
+  productName String @default("")
+  apiKey      String @default("")
   /// 已进货数量; 0 = 仅报价
   quantity   Float    @default(0)
   /// 进货价 (单价)
@@ -257,14 +271,16 @@ model ResourceSource {
   priceInfo  String   @default("")
   active     Boolean  @default(true)
   notes      String   @default("")
+  deletedAt  DateTime?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  cards        CardResource[]
-  proxies      ProxyResource[]
-  emails       EmailResource[]
-  purchases    Purchase[]
-  requestItems ResourceRequestItem[]
+  cards           CardResource[]
+  proxies         ProxyResource[]
+  emails          EmailResource[]
+  purchases       Purchase[]
+  requestItems    ResourceRequestItem[]
+  allocationItems ResourceAllocationItem[]
 
   @@index([active])
 }
@@ -288,11 +304,13 @@ model CardResource {
   projectId Int?
   notes     String    @default("")
   usedAt    DateTime?
+  deletedAt DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  source  ResourceSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
-  project Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  source          ResourceSource?          @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  project         Project?                 @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  allocationItems ResourceAllocationItem[]
 
   @@index([sourceId])
   @@index([status])
@@ -324,11 +342,13 @@ model ProxyResource {
   status    String    @default("available")
   projectId Int?
   notes     String    @default("")
+  deletedAt DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  source  ResourceSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
-  project Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  source          ResourceSource?          @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  project         Project?                 @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  allocationItems ResourceAllocationItem[]
 
   @@index([sourceId])
   @@index([protocol, ipType])
@@ -347,14 +367,17 @@ model EmailResource {
   password     String   @default("")
   /// 辅助邮箱 / 恢复信息
   recoveryInfo String   @default("")
+  usage        String   @default("")
   status       String   @default("available")
   projectId    Int?
   notes        String   @default("")
+  deletedAt    DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  source  ResourceSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
-  project Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  source          ResourceSource?          @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  project         Project?                 @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  allocationItems ResourceAllocationItem[]
 
   @@index([sourceId])
   @@index([providerKey])
@@ -374,6 +397,70 @@ model EmailProviderConfig {
   configJson  String   @default("{}")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+/// 卡资源的适用业务分类，由资源管理员在卡页面维护。
+model ResourceBusiness {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, sortOrder])
+}
+
+/// 资源管理员向生产人员发放的一次资源集合。
+model ResourceAllocation {
+  id          Int      @id @default(autoincrement())
+  assigneeId  Int
+  allocatorId Int
+  projectId   Int?
+  note        String   @default("")
+  allocatedAt DateTime @default(now())
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  assignee  User                     @relation("AllocationAssignee", fields: [assigneeId], references: [id])
+  allocator User                     @relation("AllocationCreator", fields: [allocatorId], references: [id])
+  project   Project?                 @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  items     ResourceAllocationItem[]
+
+  @@index([assigneeId])
+  @@index([allocatorId])
+  @@index([projectId])
+  @@index([allocatedAt])
+}
+
+/// 分配明细按资源类型与供应商聚合；卡使用 amount 记录分配总金额。
+model ResourceAllocationItem {
+  id           Int    @id @default(autoincrement())
+  allocationId Int
+  /// email | proxy | card
+  kind         String
+  sourceId     Int?
+  quantity     Int    @default(0)
+  amount       Float  @default(0)
+  used         Boolean @default(false)
+  business     String @default("")
+  emailId      Int?
+  proxyId      Int?
+  cardId       Int?
+
+  allocation ResourceAllocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+  source     ResourceSource?    @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  email      EmailResource?     @relation(fields: [emailId], references: [id], onDelete: SetNull)
+  proxy      ProxyResource?     @relation(fields: [proxyId], references: [id], onDelete: SetNull)
+  card       CardResource?      @relation(fields: [cardId], references: [id], onDelete: SetNull)
+
+  @@index([allocationId])
+  @@index([kind])
+  @@index([sourceId])
+  @@index([emailId])
+  @@index([proxyId])
+  @@index([cardId])
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -396,6 +483,7 @@ model ResourceRequest {
   /// 处理人 (资源管理员/财务/管理员)
   handledById Int?
   handledAt   DateTime?
+  deletedAt   DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -439,12 +527,13 @@ model ResourceRequestItem {
 /// 拆子表是过度设计; 参与计算的只有 totalAmount。
 model Purchase {
   id           Int      @id @default(autoincrement())
-  projectId    Int
+  projectId    Int?
   /// 由哪张申报单产生; 为空 = 直接采购
   requestId    Int?
   /// email | proxy | card | other
   kind         String
   purchaserId  Int
+  purchaserName String @default("")
   sourceId     Int?
   /// 采购内容 —— 自由文本 (如 "outlook 邮箱 200 个")
   content      String
@@ -456,10 +545,11 @@ model Purchase {
   /// 采购发生日 "YYYY-MM-DD"
   purchaseDate String
   notes        String   @default("")
+  deletedAt    DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  project   Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project   Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
   request   ResourceRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
   purchaser User             @relation(fields: [purchaserId], references: [id])
   source    ResourceSource?  @relation(fields: [sourceId], references: [id], onDelete: SetNull)
@@ -482,9 +572,14 @@ model ProductionBatch {
   quantity   Float    @default(0)
   /// 生产日 "YYYY-MM-DD"
   batchDate  String
+  /// in_use 使用中 | banned 已封号 | refunded 已退款
+  status     String   @default("in_use")
   /// 生产人
   operatorId Int
   note       String   @default("")
+  /// 本批产出内容，一般为逐行 SK 文本。
+  resultData String   @default("")
+  deletedAt  DateTime?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 

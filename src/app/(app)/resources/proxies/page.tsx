@@ -5,6 +5,7 @@ import { Loader2, MoreHorizontal, Plus, RefreshCw } from "lucide-react";
 import DataState from "@/components/DataState";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import RoleGate from "@/components/RoleGate";
+import ResourceHistoryDialog from "@/components/ResourceHistoryDialog";
 import SecretCell from "@/components/SecretCell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -81,6 +82,7 @@ export default function ProxiesPage() {
   const [editing, setEditing] = useState<ProxyResource | null>(null);
   const [open, setOpen] = useState(false);
   const [deleting, setDeleting] = useState<ProxyResource | null>(null);
+  const [history, setHistory] = useState<ProxyResource | null>(null);
 
   return (
     <>
@@ -164,6 +166,7 @@ export default function ProxiesPage() {
                   <TableHead>IP 类型</TableHead>
                   <TableHead>认证</TableHead>
                   <TableHead>地区</TableHead>
+                  <TableHead>有效期</TableHead>
                   <TableHead>来源</TableHead>
                   <TableHead>状态</TableHead>
                   <TableHead className="w-10" />
@@ -171,7 +174,7 @@ export default function ProxiesPage() {
               </TableHeader>
               <TableBody>
                 {items.map((p) => (
-                  <TableRow key={p.id}>
+                  <TableRow key={p.id} className="cursor-pointer" onClick={() => setHistory(p)}>
                     <TableCell className="font-mono text-xs">
                       <span className="inline-flex items-center gap-1.5">
                         {p.host}:{p.port}
@@ -203,6 +206,9 @@ export default function ProxiesPage() {
                     <TableCell className="text-muted-foreground text-xs">
                       {p.region || "-"}
                     </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {p.expiresAt ? p.expiresAt.slice(0, 10) : "长期"}
+                    </TableCell>
                     <TableCell className="text-muted-foreground text-xs">
                       {p.source?.name ?? "-"}
                     </TableCell>
@@ -211,9 +217,9 @@ export default function ProxiesPage() {
                         {RESOURCE_STATUS_LABEL[p.status]}
                       </Badge>
                     </TableCell>
-                    <TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
                       <RoleGate roles={EDITORS}>
-                        <DropdownMenu>
+                        <DropdownMenu modal={false}>
                           <DropdownMenuTrigger asChild>
                             <Button size="icon-sm" variant="ghost" aria-label="更多">
                               <MoreHorizontal size={16} />
@@ -221,7 +227,7 @@ export default function ProxiesPage() {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem
-                              onClick={() => {
+                              onSelect={() => {
                                 setEditing(p);
                                 setOpen(true);
                               }}
@@ -230,7 +236,7 @@ export default function ProxiesPage() {
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-destructive"
-                              onClick={() => setDeleting(p)}
+                              onSelect={() => setDeleting(p)}
                             >
                               删除
                             </DropdownMenuItem>
@@ -247,15 +253,17 @@ export default function ProxiesPage() {
       </Card>
 
       <ProxyDialog open={open} onOpenChange={setOpen} initial={editing} onSaved={reload} />
+      <ResourceHistoryDialog kind="proxy" resource={history} label={history ? `${history.host}:${history.port}` : "代理 IP"} details={history ? [{ label: "地址", value: `${history.host}:${history.port}` }, { label: "协议 / 类型", value: `${PROXY_PROTOCOL_LABEL[history.protocol]} / ${PROXY_IP_TYPE_LABEL[history.ipType]}` }, { label: "用户名", value: history.username }, { label: "密码", value: history.password }, { label: "地区", value: history.region }, { label: "有效期", value: history.expiresAt?.slice(0, 10) || "长期" }, { label: "来源", value: history.source?.name }, { label: "备注", value: history.notes }] : []} onOpenChange={(v) => !v && setHistory(null)} />
 
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(v) => !v && setDeleting(null)}
         title="删除这个代理？"
+        description="删除后将进入回收站，可随时恢复。"
         onConfirm={async () => {
           if (!deleting) return;
           const ok = await mutate(() => api.del(`/api/proxies/${deleting.id}`), {
-            success: "已删除",
+            success: "已移至回收站",
             error: "删除失败",
           });
           setDeleting(null);
@@ -285,6 +293,7 @@ function ProxyDialog({
   const [password, setPassword] = useState("");
   const [region, setRegion] = useState("");
   const [rotateUrl, setRotateUrl] = useState("");
+  const [expiresAt, setExpiresAt] = useState("");
   const [status, setStatus] = useState<ResourceStatus>("available");
   const [sourceId, setSourceId] = useState(NONE);
   const [notes, setNotes] = useState("");
@@ -302,6 +311,7 @@ function ProxyDialog({
     setPassword(initial?.password ?? "");
     setRegion(initial?.region ?? "");
     setRotateUrl(initial?.rotateUrl ?? "");
+    setExpiresAt(initial?.expiresAt?.slice(0, 10) ?? "");
     setStatus(initial?.status ?? "available");
     setSourceId(initial?.sourceId ? String(initial.sourceId) : NONE);
     setNotes(initial?.notes ?? "");
@@ -321,6 +331,7 @@ function ProxyDialog({
       password,
       region,
       rotateUrl,
+      expiresAt: expiresAt || null,
       status,
       sourceId: sourceId === NONE ? null : Number(sourceId),
       notes,
@@ -417,6 +428,10 @@ function ProxyDialog({
               />
             </Field>
           )}
+
+          <Field label="有效期" hint="不填表示长期有效">
+            <Input type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
+          </Field>
 
           <div className="grid sm:grid-cols-3 gap-3">
             <Field label="地区">

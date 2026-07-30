@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { badRequest, requireRole, requireRoleFresh } from "@/lib/guard";
 import { ROLES } from "@/lib/rbac";
+import { BATCH_STATUS, isOneOf } from "@/lib/enums";
 
 export const runtime = "nodejs";
 
@@ -22,11 +23,14 @@ export async function GET(req: Request) {
   const productId = sp.get("productId");
   const from = sp.get("from");
   const to = sp.get("to");
+  const status = sp.get("status");
 
   const items = await prisma.productionBatch.findMany({
     where: {
+      ...(g.session.role === ROLES.PRODUCTION ? { operatorId: g.session.id } : {}),
       ...(projectId && projectId !== "all" ? { projectId: Number(projectId) } : {}),
       ...(productId && productId !== "all" ? { productId: Number(productId) } : {}),
+      ...(status && status !== "all" ? { status } : {}),
       // batchDate 是 "YYYY-MM-DD" 文本, 字典序即时间序, 可以直接比较
       ...(from || to
         ? { batchDate: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
@@ -50,6 +54,8 @@ export async function POST(req: Request) {
     batchDate: string;
     operatorId: number;
     note: string;
+    resultData: string;
+    status: string;
   }>;
 
   if (!body.projectId) return badRequest("请选择归属项目");
@@ -57,6 +63,8 @@ export async function POST(req: Request) {
   const quantity = Number(body.quantity);
   if (!Number.isFinite(quantity) || quantity <= 0) return badRequest("产出数量需大于 0");
   if (!body.batchDate || !DATE_RE.test(body.batchDate)) return badRequest("生产日期格式应为 YYYY-MM-DD");
+  if (!(body.resultData ?? "").trim()) return badRequest("请上传或填写本次产出信息");
+  if (body.status !== undefined && !isOneOf(BATCH_STATUS, body.status)) return badRequest("批次状态非法");
 
   const item = await prisma.productionBatch.create({
     data: {
@@ -70,6 +78,8 @@ export async function POST(req: Request) {
           ? Number(body.operatorId)
           : g.session.id,
       note: body.note ?? "",
+      resultData: body.resultData ?? "",
+      status: body.status ?? "in_use",
     },
     include: INCLUDE,
   });

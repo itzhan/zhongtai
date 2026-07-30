@@ -3,6 +3,8 @@ import type { PartnerStatus } from "@/lib/enums";
 export interface PartnerItem {
   id: number;
   productId: number;
+  productName: string;
+  apiKey?: string;
   quantity: number;
   /// 台子是卖价、供货方是进价。脱敏后可能是 null
   unitPrice: number | null;
@@ -16,6 +18,7 @@ export interface Desk {
   ownerId: number;
   projectId: number;
   contact: string;
+  baseUrl: string;
   demand: string;
   status: PartnerStatus;
   notes: string;
@@ -30,6 +33,7 @@ export interface Supplier {
   ownerId: number | null;
   projectId: number;
   contact: string;
+  baseUrl: string;
   channel: string;
   status: PartnerStatus;
   notes: string;

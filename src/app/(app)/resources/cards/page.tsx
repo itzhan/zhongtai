@@ -1,15 +1,16 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, MoreHorizontal, Plus, Upload } from "lucide-react";
+import { Loader2, MoreHorizontal, Plus, Settings2, Trash2, Upload } from "lucide-react";
 import DataState from "@/components/DataState";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import RoleGate from "@/components/RoleGate";
-import SecretCell, { maskCardNo } from "@/components/SecretCell";
+import ResourceHistoryDialog from "@/components/ResourceHistoryDialog";
 import { useCan } from "@/components/RoleProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -46,10 +47,10 @@ import { useList } from "@/hooks/use-list";
 import { useSourceOptions } from "@/hooks/use-options";
 import { api, mutate } from "@/lib/api-client";
 import {
-  RESOURCE_STATUS,
-  RESOURCE_STATUS_LABEL,
-  RESOURCE_STATUS_VARIANT,
-  type ResourceStatus,
+  CARD_STATUS,
+  CARD_STATUS_LABEL,
+  CARD_STATUS_VARIANT,
+  type CardStatus,
 } from "@/lib/enums";
 import { fmtMoneyShort } from "@/lib/format";
 import { ROLES } from "@/lib/rbac";
@@ -58,6 +59,12 @@ import type { CardResource } from "../types";
 
 const NONE = "none";
 const EDITORS = [ROLES.RESOURCE];
+
+interface ResourceBusiness {
+  id: number;
+  name: string;
+  active: boolean;
+}
 
 export default function CardsPage() {
   const can = useCan();
@@ -73,12 +80,16 @@ export default function CardsPage() {
     [debouncedQ, status, sourceId],
   );
   const { items, loading, error, reload } = useList<CardResource>(path);
+  const { items: businesses, reload: reloadBusinesses } =
+    useList<ResourceBusiness>("/api/resource-businesses");
   const sources = useSourceOptions();
 
   const [editing, setEditing] = useState<CardResource | null>(null);
   const [open, setOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [businessOpen, setBusinessOpen] = useState(false);
   const [deleting, setDeleting] = useState<CardResource | null>(null);
+  const [history, setHistory] = useState<CardResource | null>(null);
 
   const openNew = () => {
     setEditing(null);
@@ -99,9 +110,9 @@ export default function CardsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">全部状态</SelectItem>
-                {RESOURCE_STATUS.map((s) => (
+                {CARD_STATUS.map((s) => (
                   <SelectItem key={s} value={s}>
-                    {RESOURCE_STATUS_LABEL[s]}
+                    {CARD_STATUS_LABEL[s]}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -123,6 +134,10 @@ export default function CardsPage() {
         }
         actions={
           <RoleGate roles={EDITORS}>
+            <Button variant="outline" className="rounded-full" onClick={() => setBusinessOpen(true)}>
+              <Settings2 size={14} />
+              管理业务
+            </Button>
             <Button variant="secondary" className="rounded-full" onClick={() => setBulkOpen(true)}>
               <Upload size={14} />
               批量导入
@@ -159,14 +174,10 @@ export default function CardsPage() {
               </TableHeader>
               <TableBody>
                 {items.map((c) => (
-                  <TableRow key={c.id}>
-                    <TableCell>
-                      <SecretCell value={c.cardNo} mask={maskCardNo} />
-                    </TableCell>
+                  <TableRow key={c.id} className="cursor-pointer" onClick={() => setHistory(c)}>
+                    <TableCell className="font-mono text-xs">{c.cardNo || "-"}</TableCell>
                     <TableCell className="font-mono text-xs">{c.expiry || "-"}</TableCell>
-                    <TableCell>
-                      <SecretCell value={c.cvv} />
-                    </TableCell>
+                    <TableCell className="font-mono text-xs">{c.cvv || "-"}</TableCell>
                     {showAmount && (
                       <TableCell className="text-right tabular-nums">
                         {c.amount === null ? (
@@ -178,7 +189,11 @@ export default function CardsPage() {
                     )}
                     <TableCell>
                       {c.usage ? (
-                        <Badge variant="outline">{c.usage}</Badge>
+                        <div className="flex flex-wrap gap-1">
+                          {c.usage.split(",").filter(Boolean).map((name) => (
+                            <Badge key={name} variant="outline">{name}</Badge>
+                          ))}
+                        </div>
                       ) : (
                         <span className="text-muted-foreground/50">-</span>
                       )}
@@ -187,13 +202,13 @@ export default function CardsPage() {
                       {c.source?.name ?? "-"}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={RESOURCE_STATUS_VARIANT[c.status]}>
-                        {RESOURCE_STATUS_LABEL[c.status]}
+                      <Badge variant={CARD_STATUS_VARIANT[c.status as CardStatus]}>
+                        {CARD_STATUS_LABEL[c.status as CardStatus] ?? c.status}
                       </Badge>
                     </TableCell>
-                    <TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
                       <RoleGate roles={EDITORS}>
-                        <DropdownMenu>
+                        <DropdownMenu modal={false}>
                           <DropdownMenuTrigger asChild>
                             <Button size="icon-sm" variant="ghost" aria-label="更多">
                               <MoreHorizontal size={16} />
@@ -201,7 +216,7 @@ export default function CardsPage() {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem
-                              onClick={() => {
+                              onSelect={() => {
                                 setEditing(c);
                                 setOpen(true);
                               }}
@@ -210,7 +225,7 @@ export default function CardsPage() {
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-destructive"
-                              onClick={() => setDeleting(c)}
+                              onSelect={() => setDeleting(c)}
                             >
                               删除
                             </DropdownMenuItem>
@@ -226,17 +241,20 @@ export default function CardsPage() {
         </CardContent>
       </Card>
 
-      <CardDialog open={open} onOpenChange={setOpen} initial={editing} onSaved={reload} />
-      <BulkImportDialog open={bulkOpen} onOpenChange={setBulkOpen} onSaved={reload} />
+      <CardDialog open={open} onOpenChange={setOpen} initial={editing} businesses={businesses} onSaved={reload} />
+      <BulkImportDialog open={bulkOpen} onOpenChange={setBulkOpen} businesses={businesses} onSaved={reload} />
+      <BusinessDialog open={businessOpen} onOpenChange={setBusinessOpen} items={businesses} onSaved={reloadBusinesses} />
+      <ResourceHistoryDialog kind="card" resource={history} label={history?.cardNo ?? "卡"} details={history ? [{ label: "卡号", value: history.cardNo }, { label: "有效期 / CVV", value: `${history.expiry || "-"} / ${history.cvv || "-"}` }, { label: "持卡人", value: history.holder }, { label: "余额", value: history.amount === null ? "-" : fmtMoneyShort(history.amount) }, { label: "适用业务", value: history.usage }, { label: "来源", value: history.source?.name }] : []} onOpenChange={(v) => !v && setHistory(null)} />
 
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(v) => !v && setDeleting(null)}
         title="删除这张卡？"
+        description="删除后将进入回收站，可随时恢复。"
         onConfirm={async () => {
           if (!deleting) return;
           const ok = await mutate(() => api.del(`/api/cards/${deleting.id}`), {
-            success: "已删除",
+            success: "已移至回收站",
             error: "删除失败",
           });
           setDeleting(null);
@@ -251,11 +269,13 @@ function CardDialog({
   open,
   onOpenChange,
   initial,
+  businesses,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   initial: CardResource | null;
+  businesses: ResourceBusiness[];
   onSaved: () => void;
 }) {
   const [cardNo, setCardNo] = useState("");
@@ -263,8 +283,8 @@ function CardDialog({
   const [expiry, setExpiry] = useState("");
   const [holder, setHolder] = useState("");
   const [amount, setAmount] = useState("");
-  const [usage, setUsage] = useState("");
-  const [status, setStatus] = useState<ResourceStatus>("available");
+  const [usage, setUsage] = useState<string[]>([]);
+  const [status, setStatus] = useState<CardStatus>("available");
   const [sourceId, setSourceId] = useState(NONE);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
@@ -278,8 +298,8 @@ function CardDialog({
     setExpiry(initial?.expiry ?? "");
     setHolder(initial?.holder ?? "");
     setAmount(initial?.amount ? String(initial.amount) : "");
-    setUsage(initial?.usage ?? "");
-    setStatus(initial?.status ?? "available");
+    setUsage(initial?.usage.split(",").filter(Boolean) ?? []);
+    setStatus((initial?.status as CardStatus) ?? "available");
     setSourceId(initial?.sourceId ? String(initial.sourceId) : NONE);
     setNotes(initial?.notes ?? "");
   }, [open, initial]);
@@ -293,7 +313,7 @@ function CardDialog({
       expiry,
       holder,
       amount: Number(amount) || 0,
-      usage,
+      usage: usage.join(","),
       status,
       sourceId: sourceId === NONE ? null : Number(sourceId),
       notes,
@@ -357,18 +377,25 @@ function CardDialog({
             </Field>
           </div>
 
-          <div className="grid sm:grid-cols-2 gap-3">
-            <Field label="持卡人">
-              <Input value={holder} onChange={(e) => setHolder(e.target.value)} />
-            </Field>
-            <Field label="适用业务" hint="自由填写">
-              <Input
-                value={usage}
-                onChange={(e) => setUsage(e.target.value)}
-                placeholder="注册用 / 充值用"
-              />
-            </Field>
-          </div>
+          <Field label="持卡人">
+            <Input value={holder} onChange={(e) => setHolder(e.target.value)} />
+          </Field>
+
+          <Field label="适用业务" hint="可多选">
+            <div className="flex flex-wrap gap-3 rounded-lg border border-border p-3">
+              {businesses.filter((b) => b.active).map((b) => (
+                <label key={b.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={usage.includes(b.name)}
+                    onCheckedChange={(checked) =>
+                      setUsage((prev) => checked ? [...prev, b.name] : prev.filter((v) => v !== b.name))
+                    }
+                  />
+                  {b.name}
+                </label>
+              ))}
+            </div>
+          </Field>
 
           <div className="grid sm:grid-cols-2 gap-3">
             <Field label="来源">
@@ -387,14 +414,14 @@ function CardDialog({
               </Select>
             </Field>
             <Field label="状态">
-              <Select value={status} onValueChange={(v) => setStatus(v as ResourceStatus)}>
+              <Select value={status} onValueChange={(v) => setStatus(v as CardStatus)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {RESOURCE_STATUS.map((s) => (
+                  {CARD_STATUS.map((s) => (
                     <SelectItem key={s} value={s}>
-                      {RESOURCE_STATUS_LABEL[s]}
+                      {CARD_STATUS_LABEL[s]}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -453,22 +480,24 @@ function parseBulk(text: string): { rows: ParsedRow[]; badLines: number[] } {
 function BulkImportDialog({
   open,
   onOpenChange,
+  businesses,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  businesses: ResourceBusiness[];
   onSaved: () => void;
 }) {
   const [text, setText] = useState("");
   const [sourceId, setSourceId] = useState(NONE);
-  const [usage, setUsage] = useState("");
+  const [usage, setUsage] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const sources = useSourceOptions(open);
 
   useEffect(() => {
     if (!open) return;
     setText("");
-    setUsage("");
+    setUsage([]);
   }, [open]);
 
   const { rows, badLines } = useMemo(() => parseBulk(text), [text]);
@@ -483,7 +512,7 @@ function BulkImportDialog({
           api.post("/api/cards", {
             bulk: rows,
             sourceId: sourceId === NONE ? null : Number(sourceId),
-            usage,
+            usage: usage.join(","),
           }),
         { success: `已导入 ${rows.length} 张卡`, error: "导入失败" },
       );
@@ -542,7 +571,19 @@ function BulkImportDialog({
               </Select>
             </Field>
             <Field label="统一适用业务">
-              <Input value={usage} onChange={(e) => setUsage(e.target.value)} />
+              <div className="flex flex-wrap gap-3 min-h-9 items-center">
+                {businesses.filter((b) => b.active).map((b) => (
+                  <label key={b.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <Checkbox
+                      checked={usage.includes(b.name)}
+                      onCheckedChange={(checked) =>
+                        setUsage((prev) => checked ? [...prev, b.name] : prev.filter((v) => v !== b.name))
+                      }
+                    />
+                    {b.name}
+                  </label>
+                ))}
+              </div>
             </Field>
           </div>
         </div>
@@ -558,5 +599,81 @@ function BulkImportDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function BusinessDialog({
+  open,
+  onOpenChange,
+  items,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  items: ResourceBusiness[];
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function add() {
+    if (!name.trim()) return toast.warning("请填写业务名称");
+    setSaving(true);
+    try {
+      const ok = await mutate(() => api.post("/api/resource-businesses", { name: name.trim() }), {
+        success: "已添加",
+        error: "添加失败",
+      });
+      if (ok) {
+        setName("");
+        onSaved();
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>适用业务管理</DialogTitle></DialogHeader>
+        <div className="flex gap-2">
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="新业务名称" onKeyDown={(e) => e.key === "Enter" && void add()} />
+          <Button onClick={add} disabled={saving}><Plus size={14} />添加</Button>
+        </div>
+        <div className="divide-y divide-border rounded-lg border border-border">
+          {items.map((item) => (
+            <div key={item.id} className="flex items-center gap-3 px-3 py-2">
+              <SwitchBusiness item={item} onSaved={onSaved} />
+              <span className="flex-1 text-sm font-medium">{item.name}</span>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label={`删除 ${item.name}`}
+                onClick={async () => {
+                  const ok = await mutate(() => api.del(`/api/resource-businesses/${item.id}`), { error: "删除失败" });
+                  if (ok) onSaved();
+                }}
+              ><Trash2 size={14} /></Button>
+            </div>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SwitchBusiness({ item, onSaved }: { item: ResourceBusiness; onSaved: () => void }) {
+  return (
+    <Checkbox
+      checked={item.active}
+      onCheckedChange={async (active) => {
+        const ok = await mutate(
+          () => api.patch(`/api/resource-businesses/${item.id}`, { active: Boolean(active) }),
+          { error: "更新失败" },
+        );
+        if (ok) onSaved();
+      }}
+    />
   );
 }

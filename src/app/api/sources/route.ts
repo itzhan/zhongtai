@@ -9,9 +9,8 @@ const INCLUDE = {
   _count: { select: { cards: true, proxies: true, emails: true } },
 } as const;
 
-/// 生产也能看来源 (申报时要选), 但 priceInfo 与三个单价被 mask 掉。
 export async function GET(req: Request) {
-  const g = await requireRole(ROLES.RESOURCE, ROLES.FINANCE, ROLES.PRODUCTION);
+  const g = await requireRole(ROLES.RESOURCE, ROLES.FINANCE);
   if (!g.ok) return g.res;
 
   const sp = new URL(req.url).searchParams;

@@ -4,6 +4,7 @@ import { Percent, Receipt, TrendingUp, Wallet } from "lucide-react";
 import CategoryBarChart from "@/components/charts/CategoryBarChart";
 import DataState from "@/components/DataState";
 import PageHeader from "@/components/PageHeader";
+import RecordDetailDialog, { type DetailField } from "@/components/RecordDetailDialog";
 import StatCard from "@/components/StatCard";
 import { useCan } from "@/components/RoleProvider";
 import { Badge } from "@/components/ui/badge";
@@ -21,11 +22,12 @@ import { api } from "@/lib/api-client";
 import {
   PROJECT_STATUS_LABEL,
   PROJECT_STATUS_VARIANT,
-  RESOURCE_KIND_LABEL,
   PURCHASE_KIND_LABEL,
+  BATCH_STATUS_LABEL,
+  BATCH_STATUS_VARIANT,
+  type BatchStatus,
   type ProjectStatus,
   type PurchaseKind,
-  type ResourceKind,
 } from "@/lib/enums";
 import { fmtMoneyShort } from "@/lib/format";
 
@@ -33,6 +35,7 @@ interface Detail {
   project: {
     id: number;
     code: string;
+    ownerName: string;
     name: string;
     status: ProjectStatus;
     description: string;
@@ -43,6 +46,8 @@ interface Detail {
         id: number;
         name: string;
         status: string;
+        baseUrl: string;
+        demand: string;
         owner: { displayName: string };
         items: { quantity: number; unitPrice: number | null }[];
       }[]
@@ -53,17 +58,10 @@ interface Detail {
         purchaseDate: string;
         kind: PurchaseKind;
         content: string;
+        detail: string | null;
+        purchaserName: string;
         totalAmount: number | null;
         purchaser: { displayName: string };
-      }[]
-    | null;
-  requests:
-    | {
-        id: number;
-        periodDate: string;
-        status: string;
-        reporter: { displayName: string };
-        items: { kind: ResourceKind; quantity: number; amount: number | null }[];
       }[]
     | null;
   batches:
@@ -71,8 +69,11 @@ interface Detail {
         id: number;
         batchDate: string;
         quantity: number;
+        status: BatchStatus;
         product: { name: string };
         operator: { displayName: string };
+        note: string;
+        resultData: string;
       }[]
     | null;
 }
@@ -95,6 +96,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const [profit, setProfit] = useState<Profit | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<{ title: string; fields: DetailField[] } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -128,9 +130,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
       <PageHeader
         back="/projects"
         title={p?.name ?? "项目详情"}
-        subtitle={
-          p ? `${p.code}${p.owner ? ` · 负责人 ${p.owner.displayName}` : ""}` : undefined
-        }
+        subtitle={p ? `负责人 ${p.ownerName || p.owner?.displayName || "-"}` : undefined}
         actions={
           p && (
             <Badge variant={PROJECT_STATUS_VARIANT[p.status]}>
@@ -197,7 +197,6 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           <TabsList>
             {detail?.desks && <TabsTrigger value="desks">台子</TabsTrigger>}
             {detail?.purchases && <TabsTrigger value="purchases">采购</TabsTrigger>}
-            {detail?.requests && <TabsTrigger value="requests">消耗申报</TabsTrigger>}
             {detail?.batches && <TabsTrigger value="batches">产出批次</TabsTrigger>}
           </TabsList>
 
@@ -219,7 +218,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                       </TableHeader>
                       <TableBody>
                         {detail.desks.map((d) => (
-                          <TableRow key={d.id}>
+                          <TableRow key={d.id} className="cursor-pointer" onClick={() => setViewing({ title: "台子详情", fields: [{ label: "台子名称", value: d.name }, { label: "归属销售", value: d.owner.displayName }, { label: "Base URL", value: d.baseUrl }, { label: "状态", value: d.status }, { label: "需求说明", value: d.demand, wide: true }, { label: "卖价明细", value: d.items.map((item) => fmtMoneyShort(item.unitPrice ?? 0)).join(" / ") || "-", wide: true }] })}>
                             <TableCell className="font-medium">{d.name}</TableCell>
                             <TableCell className="text-muted-foreground">
                               {d.owner.displayName}
@@ -261,7 +260,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                       </TableHeader>
                       <TableBody>
                         {detail.purchases.map((r) => (
-                          <TableRow key={r.id}>
+                          <TableRow key={r.id} className="cursor-pointer" onClick={() => setViewing({ title: "采购详情", fields: [{ label: "日期", value: r.purchaseDate }, { label: "类型", value: PURCHASE_KIND_LABEL[r.kind] }, { label: "采购人", value: r.purchaserName || r.purchaser.displayName }, { label: "金额", value: r.totalAmount === null ? "-" : fmtMoneyShort(r.totalAmount) }, { label: "采购内容", value: r.content, wide: true }, { label: "花费详情", value: r.detail, wide: true }] })}>
                             <TableCell className="font-mono text-xs">{r.purchaseDate}</TableCell>
                             <TableCell>
                               <Badge variant="secondary">{PURCHASE_KIND_LABEL[r.kind]}</Badge>
@@ -283,46 +282,6 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
             </TabsContent>
           )}
 
-          {detail?.requests && (
-            <TabsContent value="requests" className="mt-4">
-              <Card>
-                <CardContent className="p-0">
-                  {detail.requests.length === 0 ? (
-                    <Empty text="该项目下还没有消耗申报" />
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>日期</TableHead>
-                          <TableHead>申报人</TableHead>
-                          <TableHead>明细</TableHead>
-                          <TableHead className="text-right">金额</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {detail.requests.map((r) => (
-                          <TableRow key={r.id}>
-                            <TableCell className="font-mono text-xs">{r.periodDate}</TableCell>
-                            <TableCell className="text-muted-foreground">
-                              {r.reporter.displayName}
-                            </TableCell>
-                            <TableCell className="text-xs text-muted-foreground">
-                              {r.items
-                                .map((i) => `${RESOURCE_KIND_LABEL[i.kind]}×${i.quantity}`)
-                                .join(" · ")}
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums">
-                              {fmtMoneyShort(r.items.reduce((s, i) => s + (i.amount ?? 0), 0))}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-          )}
 
           {detail?.batches && (
             <TabsContent value="batches" className="mt-4">
@@ -337,17 +296,19 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                           <TableHead>日期</TableHead>
                           <TableHead>产品</TableHead>
                           <TableHead className="text-right">数量</TableHead>
+                          <TableHead>状态</TableHead>
                           <TableHead>生产人</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {detail.batches.map((b) => (
-                          <TableRow key={b.id}>
+                          <TableRow key={b.id} className="cursor-pointer" onClick={() => setViewing({ title: "产出批次详情", fields: [{ label: "日期", value: b.batchDate }, { label: "状态", value: BATCH_STATUS_LABEL[b.status] }, { label: "产品", value: b.product.name }, { label: "数量", value: b.quantity.toLocaleString("en-US") }, { label: "生产人", value: b.operator.displayName }, { label: "备注", value: b.note, wide: true }, { label: "产出信息", value: b.resultData, wide: true }] })}>
                             <TableCell className="font-mono text-xs">{b.batchDate}</TableCell>
                             <TableCell className="font-medium">{b.product.name}</TableCell>
                             <TableCell className="text-right tabular-nums">
                               {b.quantity.toLocaleString("en-US")}
                             </TableCell>
+                            <TableCell><Badge variant={BATCH_STATUS_VARIANT[b.status]}>{BATCH_STATUS_LABEL[b.status]}</Badge></TableCell>
                             <TableCell className="text-muted-foreground">
                               {b.operator.displayName}
                             </TableCell>
@@ -361,6 +322,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
             </TabsContent>
           )}
         </Tabs>
+        <RecordDetailDialog open={viewing !== null} onOpenChange={(value) => !value && setViewing(null)} title={viewing?.title ?? "详情"} fields={viewing?.fields ?? []} />
       </DataState>
     </>
   );

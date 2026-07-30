@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { badRequest, notFound, parseId, requireRoleFresh } from "@/lib/guard";
 import { ROLES } from "@/lib/rbac";
+import { BATCH_STATUS, isOneOf } from "@/lib/enums";
 
 export const runtime = "nodejs";
 
@@ -29,6 +30,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     quantity: number;
     batchDate: string;
     note: string;
+    resultData: string;
+    status: string;
   }>;
 
   const data: Record<string, unknown> = {};
@@ -44,6 +47,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     data.batchDate = body.batchDate;
   }
   if (body.note !== undefined) data.note = body.note;
+  if (body.resultData !== undefined) data.resultData = body.resultData;
+  if (body.status !== undefined) {
+    if (!isOneOf(BATCH_STATUS, body.status)) return badRequest("批次状态非法");
+    data.status = body.status;
+  }
 
   const item = await prisma.productionBatch.update({ where: { id }, data, include: INCLUDE });
   return NextResponse.json({ item });
@@ -59,6 +67,6 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
   const existing = await prisma.productionBatch.findUnique({ where: { id } });
   if (!existing) return notFound("批次不存在");
 
-  await prisma.productionBatch.delete({ where: { id } });
+  await prisma.productionBatch.update({ where: { id }, data: { deletedAt: new Date() } });
   return NextResponse.json({ ok: true });
 }

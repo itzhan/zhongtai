@@ -27,6 +27,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     password: string;
     providerKey: string;
     recoveryInfo: string;
+    usage: string;
     status: string;
     sourceId: number | null;
     projectId: number | null;
@@ -46,6 +47,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (body.password !== undefined) data.password = body.password;
   if (body.providerKey !== undefined) data.providerKey = body.providerKey;
   if (body.recoveryInfo !== undefined) data.recoveryInfo = body.recoveryInfo;
+  if (body.usage !== undefined) data.usage = body.usage;
   if (body.sourceId !== undefined) data.sourceId = body.sourceId ?? null;
   if (body.projectId !== undefined) data.projectId = body.projectId ?? null;
   if (body.notes !== undefined) data.notes = body.notes;
@@ -68,6 +70,6 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
   const existing = await prisma.emailResource.findUnique({ where: { id } });
   if (!existing) return notFound("邮箱不存在");
 
-  await prisma.emailResource.delete({ where: { id } });
+  await prisma.emailResource.update({ where: { id }, data: { deletedAt: new Date() } });
   return NextResponse.json({ ok: true });
 }

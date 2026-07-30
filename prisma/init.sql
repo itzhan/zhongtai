@@ -1,7 +1,3 @@
--- 由 prisma 生成, 请勿手改。schema 变动后重新生成:
---   npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script > prisma/init.sql
--- scripts/migrate.mjs 会读取本文件并自动补 IF NOT EXISTS 后逐条执行。
-
 -- CreateTable
 CREATE TABLE "User" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -170,6 +166,7 @@ CREATE TABLE "EmailResource" (
     "address" TEXT NOT NULL,
     "password" TEXT NOT NULL DEFAULT '',
     "recoveryInfo" TEXT NOT NULL DEFAULT '',
+    "usage" TEXT NOT NULL DEFAULT '',
     "status" TEXT NOT NULL DEFAULT 'available',
     "projectId" INTEGER,
     "notes" TEXT NOT NULL DEFAULT '',
@@ -188,6 +185,49 @@ CREATE TABLE "EmailProviderConfig" (
     "configJson" TEXT NOT NULL DEFAULT '{}',
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL
+);
+
+-- CreateTable
+CREATE TABLE "ResourceBusiness" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "name" TEXT NOT NULL,
+    "active" BOOLEAN NOT NULL DEFAULT true,
+    "sortOrder" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+
+-- CreateTable
+CREATE TABLE "ResourceAllocation" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "assigneeId" INTEGER NOT NULL,
+    "allocatorId" INTEGER NOT NULL,
+    "projectId" INTEGER,
+    "note" TEXT NOT NULL DEFAULT '',
+    "allocatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ResourceAllocation_assigneeId_fkey" FOREIGN KEY ("assigneeId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "ResourceAllocation_allocatorId_fkey" FOREIGN KEY ("allocatorId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "ResourceAllocation_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "ResourceAllocationItem" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "allocationId" INTEGER NOT NULL,
+    "kind" TEXT NOT NULL,
+    "sourceId" INTEGER,
+    "quantity" INTEGER NOT NULL DEFAULT 0,
+    "amount" REAL NOT NULL DEFAULT 0,
+    "business" TEXT NOT NULL DEFAULT '',
+    "emailId" INTEGER,
+    "proxyId" INTEGER,
+    "cardId" INTEGER,
+    CONSTRAINT "ResourceAllocationItem_allocationId_fkey" FOREIGN KEY ("allocationId") REFERENCES "ResourceAllocation" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "ResourceAllocationItem_sourceId_fkey" FOREIGN KEY ("sourceId") REFERENCES "ResourceSource" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "ResourceAllocationItem_emailId_fkey" FOREIGN KEY ("emailId") REFERENCES "EmailResource" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "ResourceAllocationItem_proxyId_fkey" FOREIGN KEY ("proxyId") REFERENCES "ProxyResource" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "ResourceAllocationItem_cardId_fkey" FOREIGN KEY ("cardId") REFERENCES "CardResource" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -223,7 +263,7 @@ CREATE TABLE "ResourceRequestItem" (
 -- CreateTable
 CREATE TABLE "Purchase" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    "projectId" INTEGER NOT NULL,
+    "projectId" INTEGER,
     "requestId" INTEGER,
     "kind" TEXT NOT NULL,
     "purchaserId" INTEGER NOT NULL,
@@ -236,7 +276,7 @@ CREATE TABLE "Purchase" (
     "notes" TEXT NOT NULL DEFAULT '',
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
-    CONSTRAINT "Purchase_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "Purchase_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "Purchase_requestId_fkey" FOREIGN KEY ("requestId") REFERENCES "ResourceRequest" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "Purchase_purchaserId_fkey" FOREIGN KEY ("purchaserId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT "Purchase_sourceId_fkey" FOREIGN KEY ("sourceId") REFERENCES "ResourceSource" ("id") ON DELETE SET NULL ON UPDATE CASCADE
@@ -251,6 +291,7 @@ CREATE TABLE "ProductionBatch" (
     "batchDate" TEXT NOT NULL,
     "operatorId" INTEGER NOT NULL,
     "note" TEXT NOT NULL DEFAULT '',
+    "resultData" TEXT NOT NULL DEFAULT '',
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     CONSTRAINT "ProductionBatch_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
@@ -344,6 +385,42 @@ CREATE INDEX "EmailResource_status_idx" ON "EmailResource"("status");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "EmailProviderConfig_providerKey_key" ON "EmailProviderConfig"("providerKey");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ResourceBusiness_name_key" ON "ResourceBusiness"("name");
+
+-- CreateIndex
+CREATE INDEX "ResourceBusiness_active_sortOrder_idx" ON "ResourceBusiness"("active", "sortOrder");
+
+-- CreateIndex
+CREATE INDEX "ResourceAllocation_assigneeId_idx" ON "ResourceAllocation"("assigneeId");
+
+-- CreateIndex
+CREATE INDEX "ResourceAllocation_allocatorId_idx" ON "ResourceAllocation"("allocatorId");
+
+-- CreateIndex
+CREATE INDEX "ResourceAllocation_projectId_idx" ON "ResourceAllocation"("projectId");
+
+-- CreateIndex
+CREATE INDEX "ResourceAllocation_allocatedAt_idx" ON "ResourceAllocation"("allocatedAt");
+
+-- CreateIndex
+CREATE INDEX "ResourceAllocationItem_allocationId_idx" ON "ResourceAllocationItem"("allocationId");
+
+-- CreateIndex
+CREATE INDEX "ResourceAllocationItem_kind_idx" ON "ResourceAllocationItem"("kind");
+
+-- CreateIndex
+CREATE INDEX "ResourceAllocationItem_sourceId_idx" ON "ResourceAllocationItem"("sourceId");
+
+-- CreateIndex
+CREATE INDEX "ResourceAllocationItem_emailId_idx" ON "ResourceAllocationItem"("emailId");
+
+-- CreateIndex
+CREATE INDEX "ResourceAllocationItem_proxyId_idx" ON "ResourceAllocationItem"("proxyId");
+
+-- CreateIndex
+CREATE INDEX "ResourceAllocationItem_cardId_idx" ON "ResourceAllocationItem"("cardId");
 
 -- CreateIndex
 CREATE INDEX "ResourceRequest_projectId_idx" ON "ResourceRequest"("projectId");

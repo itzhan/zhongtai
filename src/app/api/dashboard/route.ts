@@ -110,13 +110,10 @@ export async function GET(req: Request) {
 
   // ── 生产情况 ────────────────────────────────────────────────
   if (seeProduction) {
-    const [batches, pendingRequests] = await Promise.all([
-      prisma.productionBatch.findMany({
-        where: { batchDate: { gte: since } },
-        include: { product: { select: { name: true } } },
-      }),
-      prisma.resourceRequest.count({ where: { status: "pending" } }),
-    ]);
+    const batches = await prisma.productionBatch.findMany({
+      where: { batchDate: { gte: since }, ...(role === ROLES.PRODUCTION ? { operatorId: g.session.id } : {}) },
+      include: { product: { select: { name: true } } },
+    });
 
     const qty = batches.reduce((s, b) => s + b.quantity, 0);
 
@@ -131,7 +128,6 @@ export async function GET(req: Request) {
       key: "output",
       label: "产出总量",
       value: qty.toLocaleString("en-US"),
-      hint: pendingRequests ? `${pendingRequests} 张申报待处理` : undefined,
       accent: "success",
       icon: "boxes",
     });

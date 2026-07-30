@@ -27,7 +27,7 @@ const SENSITIVE = {
     proxyPrice: [RESOURCE, FINANCE],
     cardPrice: [RESOURCE, FINANCE],
   },
-  card: { cardNo: [RESOURCE], cvv: [RESOURCE], amount: [RESOURCE, FINANCE] },
+  card: { amount: [RESOURCE, FINANCE] },
   proxy: { password: [RESOURCE, PRODUCTION] }, // 生产要用所以可见
   email: { password: [RESOURCE, PRODUCTION] },
   project: { cost: [FINANCE], profit: [FINANCE], margin: [FINANCE] },

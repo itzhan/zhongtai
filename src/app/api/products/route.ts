@@ -32,7 +32,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const g = await requireRoleFresh(ROLES.PRODUCTION);
+  const g = await requireRoleFresh(ROLES.ADMIN);
   if (!g.ok) return g.res;
 
   const body = (await req.json().catch(() => ({}))) as Partial<{

@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 const INCLUDE = { project: { select: { id: true, code: true, name: true } } } as const;
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const g = await requireRoleFresh(ROLES.PRODUCTION);
+  const g = await requireRoleFresh(ROLES.ADMIN);
   if (!g.ok) return g.res;
 
   const id = parseId((await ctx.params).id);
@@ -43,7 +43,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const g = await requireRoleFresh(ROLES.PRODUCTION);
+  const g = await requireRoleFresh(ROLES.ADMIN);
   if (!g.ok) return g.res;
 
   const id = parseId((await ctx.params).id);
@@ -62,6 +62,6 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
     );
   }
 
-  await prisma.product.delete({ where: { id } });
+  await prisma.product.update({ where: { id }, data: { deletedAt: new Date() } });
   return NextResponse.json({ ok: true });
 }

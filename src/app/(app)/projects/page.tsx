@@ -8,7 +8,7 @@ import ConfirmDialog from "@/components/ConfirmDialog";
 import RoleGate from "@/components/RoleGate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,14 +23,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { useList } from "@/hooks/use-list";
 import { useDebounced } from "@/hooks/use-debounced";
 import { api, mutate } from "@/lib/api-client";
@@ -87,7 +79,7 @@ export default function ProjectsPage() {
           />
           <Input
             className="pl-8 w-56"
-            placeholder="搜索代号或名称"
+            placeholder="搜索项目名称"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
@@ -107,56 +99,15 @@ export default function ProjectsPage() {
         </Select>
       </div>
 
-      <Card>
-        <CardContent className="p-0">
-          <DataState
+      <DataState
             loading={loading}
             error={error}
             empty={items.length === 0}
             emptyText="还没有项目，点右上角「新建项目」开始"
             onRetry={reload}
           >
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>代号</TableHead>
-                  <TableHead>名称</TableHead>
-                  <TableHead>状态</TableHead>
-                  <TableHead>负责人</TableHead>
-                  <TableHead className="text-right">台子</TableHead>
-                  <TableHead className="text-right">产品</TableHead>
-                  <TableHead className="text-right">采购</TableHead>
-                  <TableHead>立项时间</TableHead>
-                  <TableHead className="w-10" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {items.map((p) => (
-                  <TableRow key={p.id}>
-                    <TableCell className="font-mono text-xs">{p.code}</TableCell>
-                    <TableCell className="font-medium">
-                      <Link
-                        href={`/projects/${p.id}`}
-                        className="hover:text-primary transition-colors"
-                      >
-                        {p.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={PROJECT_STATUS_VARIANT[p.status]}>
-                        {PROJECT_STATUS_LABEL[p.status]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {p.owner?.displayName ?? "-"}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">{p._count.desks}</TableCell>
-                    <TableCell className="text-right tabular-nums">{p._count.products}</TableCell>
-                    <TableCell className="text-right tabular-nums">{p._count.purchases}</TableCell>
-                    <TableCell className="text-muted-foreground text-xs">
-                      {fmtDay(p.startedAt)}
-                    </TableCell>
-                    <TableCell>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {items.map((p) => <Card key={p.id} className="h-full"><CardHeader className="pb-3"><div className="flex items-start gap-2"><div className="min-w-0 flex-1"><CardTitle className="text-base"><Link href={`/projects/${p.id}`} className="hover:text-primary">{p.name}</Link></CardTitle><p className="mt-1 text-xs text-muted-foreground">负责人：{p.ownerName || p.owner?.displayName || "-"}</p></div><Badge variant={PROJECT_STATUS_VARIANT[p.status]}>{PROJECT_STATUS_LABEL[p.status]}</Badge>
                       <RoleGate roles={ADMIN_ONLY}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -182,14 +133,9 @@ export default function ProjectsPage() {
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </RoleGate>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                    </div></CardHeader><CardContent><p className="min-h-12 text-sm leading-6 text-muted-foreground whitespace-pre-wrap">{p.description || "暂无项目说明"}</p><div className="mt-4 grid grid-cols-3 border-t pt-3 text-center"><div><p className="font-semibold">{p._count.desks}</p><p className="text-xs text-muted-foreground">台子</p></div><div><p className="font-semibold">{p._count.products}</p><p className="text-xs text-muted-foreground">产品</p></div><div><p className="font-semibold">{p._count.purchases}</p><p className="text-xs text-muted-foreground">采购</p></div></div><p className="mt-3 text-xs text-muted-foreground">创建于 {fmtDay(p.startedAt)}</p></CardContent></Card>)}
+            </div>
           </DataState>
-        </CardContent>
-      </Card>
 
       <ProjectDialog
         open={dialogOpen}
@@ -202,11 +148,11 @@ export default function ProjectsPage() {
         open={deleting !== null}
         onOpenChange={(v) => !v && setDeleting(null)}
         title={`删除项目「${deleting?.name ?? ""}」？`}
-        description="仅当项目下没有台子、供货方和采购记录时才能删除。"
+        description="仅当项目下没有台子、供货方和采购记录时才能移入回收站。"
         onConfirm={async () => {
           if (!deleting) return;
           const ok = await mutate(() => api.del(`/api/projects/${deleting.id}`), {
-            success: "已删除",
+            success: "已移至回收站",
             error: "删除失败",
           });
           setDeleting(null);

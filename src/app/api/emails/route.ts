@@ -45,6 +45,7 @@ export async function POST(req: Request) {
     password: string;
     providerKey: string;
     recoveryInfo: string;
+    usage: string;
     status: string;
     sourceId: number | null;
     projectId: number | null;
@@ -63,6 +64,7 @@ export async function POST(req: Request) {
     projectId: body.projectId ?? null,
     status: body.status ?? "available",
     recoveryInfo: body.recoveryInfo ?? "",
+    usage: body.usage ?? "",
     notes: body.notes ?? "",
   };
 

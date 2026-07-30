@@ -32,7 +32,7 @@ import ProductDialog from "./product-dialog";
 import type { Product, ProjectOption } from "./types";
 
 /// 产品的增删改归生产, 其余角色只读。
-const EDITORS = [ROLES.PRODUCTION];
+const EDITORS = [ROLES.ADMIN];
 
 export default function ProductsPage() {
   const [q, setQ] = useState("");
@@ -99,7 +99,7 @@ export default function ProductsPage() {
             <SelectItem value="none">通用（未绑定）</SelectItem>
             {projects.map((p) => (
               <SelectItem key={p.id} value={String(p.id)}>
-                {p.code} · {p.name}
+                {p.name}
               </SelectItem>
             ))}
           </SelectContent>
@@ -147,11 +147,11 @@ export default function ProductsPage() {
         open={deleting !== null}
         onOpenChange={(v) => !v && setDeleting(null)}
         title={`删除产品「${deleting?.name ?? ""}」？`}
-        description="已被台子明细、供货明细或产出批次引用的产品无法删除。"
+        description="已被台子明细、供货明细或产出批次引用的产品暂不能移入回收站。"
         onConfirm={async () => {
           if (!deleting) return;
           const ok = await mutate(() => api.del(`/api/products/${deleting.id}`), {
-            success: "已删除",
+            success: "已移至回收站",
             error: "删除失败",
           });
           setDeleting(null);

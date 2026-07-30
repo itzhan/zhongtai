@@ -31,6 +31,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     password: string;
     region: string;
     rotateUrl: string;
+    expiresAt: string | null;
     status: string;
     sourceId: number | null;
     projectId: number | null;
@@ -68,6 +69,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (body.sourceId !== undefined) data.sourceId = body.sourceId ?? null;
   if (body.projectId !== undefined) data.projectId = body.projectId ?? null;
   if (body.notes !== undefined) data.notes = body.notes;
+  if (body.expiresAt !== undefined) data.expiresAt = body.expiresAt ? new Date(body.expiresAt) : null;
   if (body.status !== undefined) {
     if (!isOneOf(RESOURCE_STATUS, body.status)) return badRequest("状态非法");
     data.status = body.status;
@@ -87,6 +89,6 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
   const existing = await prisma.proxyResource.findUnique({ where: { id } });
   if (!existing) return notFound("代理不存在");
 
-  await prisma.proxyResource.delete({ where: { id } });
+  await prisma.proxyResource.update({ where: { id }, data: { deletedAt: new Date() } });
   return NextResponse.json({ ok: true });
 }

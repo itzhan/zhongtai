@@ -27,7 +27,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const canSeeCost = isAdmin || role === ROLES.FINANCE || role === ROLES.RESOURCE;
   const canSeeProduction = isAdmin || role === ROLES.PRODUCTION || role === ROLES.FINANCE;
 
-  const [desks, purchases, requests, batches] = await Promise.all([
+  const [desks, purchases, batches] = await Promise.all([
     canSeeDesks
       ? prisma.desk.findMany({
           where: {
@@ -52,18 +52,6 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
         })
       : Promise.resolve(null),
 
-    canSeeCost || canSeeProduction
-      ? prisma.resourceRequest.findMany({
-          where: { projectId: id },
-          include: {
-            reporter: { select: { id: true, displayName: true } },
-            items: { select: { kind: true, quantity: true, amount: true } },
-          },
-          orderBy: [{ periodDate: "desc" }, { id: "desc" }],
-          take: 50,
-        })
-      : Promise.resolve(null),
-
     canSeeProduction
       ? prisma.productionBatch.findMany({
           where: { projectId: id },
@@ -82,7 +70,6 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       project,
       desks: desks ? maskMany("desk", role, desks) : null,
       purchases: purchases ? maskMany("purchase", role, purchases) : null,
-      requests: requests ? maskMany("request", role, requests) : null,
       batches,
     },
   });

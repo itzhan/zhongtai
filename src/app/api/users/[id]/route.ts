@@ -73,12 +73,6 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
   const existing = await prisma.user.findUnique({ where: { id } });
   if (!existing) return notFound("用户不存在");
 
-  // 用户被台子/采购/申报等引用时删不掉 (外键无 onDelete)。
-  // 这是刻意的 —— 归属人是业务凭证, 应该停用而不是删除。
-  try {
-    await prisma.user.delete({ where: { id } });
-  } catch {
-    return badRequest("该用户已关联业务数据, 请改用「停用」");
-  }
+  await prisma.user.update({ where: { id }, data: { deletedAt: new Date(), active: false } });
   return NextResponse.json({ ok: true });
 }

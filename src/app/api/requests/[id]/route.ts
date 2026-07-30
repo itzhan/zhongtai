@@ -112,6 +112,6 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
     if (existing.status !== "pending") return badRequest("已处理的申报不能删除");
   }
 
-  await prisma.resourceRequest.delete({ where: { id } });
+  await prisma.resourceRequest.update({ where: { id }, data: { deletedAt: new Date() } });
   return NextResponse.json({ ok: true });
 }

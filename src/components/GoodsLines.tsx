@@ -4,20 +4,14 @@ import { Trash2 } from "lucide-react";
 import LineItemsFrame, { LineItemRow } from "@/components/LineItemsFrame";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { fmtMoneyShort } from "@/lib/format";
 
 export interface GoodsLine {
   /// 稳定的行 key。必须用 uuid 而非数组下标 —— 删中间行时下标做 key 会让
   /// React 复用错行, 输入框内容串位。
   key: string;
   productId: number | null;
+  productName: string;
+  apiKey: string;
   quantity: number;
   unitPrice: number;
   note: string;
@@ -28,13 +22,13 @@ export interface ProductOption {
   name: string;
 }
 
-const COLS = "1fr 90px 120px 1fr 36px";
-
 export function newLine(): GoodsLine {
   return {
     key: crypto.randomUUID(),
     productId: null,
-    quantity: 1,
+    productName: "",
+    apiKey: "",
+    quantity: 0,
     unitPrice: 0,
     note: "",
   };
@@ -45,22 +39,17 @@ export function newLine(): GoodsLine {
 export default function GoodsLines({
   value,
   onChange,
-  products,
   priceLabel = "单价",
-  qtyLabel = "数量",
-  qtyHint,
+  showKey = false,
 }: {
   value: GoodsLine[];
   onChange: (v: GoodsLine[]) => void;
-  products: ProductOption[];
+  products?: ProductOption[];
   priceLabel?: string;
-  qtyLabel?: string;
-  qtyHint?: string;
+  showKey?: boolean;
 }) {
-  const total = useMemo(
-    () => value.reduce((s, l) => s + (l.quantity || 0) * (l.unitPrice || 0), 0),
-    [value],
-  );
+  const total = useMemo(() => value.reduce((s, l) => s + (l.unitPrice || 0), 0), [value]);
+  const cols = showKey ? "1fr 1fr 120px 36px" : "1fr 120px 36px";
 
   const patch = (i: number, p: Partial<GoodsLine>) =>
     onChange(value.map((l, idx) => (idx === i ? { ...l, ...p } : l)));
@@ -68,39 +57,16 @@ export default function GoodsLines({
   return (
     <div className="space-y-1.5">
       <LineItemsFrame
-        cols={COLS}
-        header={["产品", qtyLabel, priceLabel, "备注", ""]}
-        total={fmtMoneyShort(total)}
+        cols={cols}
+        header={showKey ? ["产品", "Key", priceLabel, ""] : ["产品", priceLabel, ""]}
+        total={`共 ${value.length} 项`}
         isEmpty={value.length === 0}
         onAdd={() => onChange([...value, newLine()])}
       >
         {value.map((l, i) => (
-          <LineItemRow key={l.key} cols={COLS}>
-            <Select
-              value={l.productId ? String(l.productId) : ""}
-              onValueChange={(v) => patch(i, { productId: Number(v) })}
-            >
-              <SelectTrigger className="col-span-2 md:col-span-1">
-                <SelectValue placeholder="选择产品" />
-              </SelectTrigger>
-              <SelectContent>
-                {products.map((p) => (
-                  <SelectItem key={p.id} value={String(p.id)}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Input
-              type="number"
-              min={0}
-              inputMode="decimal"
-              className="tabular-nums"
-              aria-label={qtyLabel}
-              value={l.quantity}
-              onChange={(e) => patch(i, { quantity: Number(e.target.value) })}
-            />
+          <LineItemRow key={l.key} cols={cols}>
+            <Input value={l.productName} onChange={(e) => patch(i, { productName: e.target.value })} placeholder="填写产品名称" />
+            {showKey && <Input value={l.apiKey} onChange={(e) => patch(i, { apiKey: e.target.value })} placeholder="填写产品 Key" className="font-mono" />}
             <Input
               type="number"
               min={0}
@@ -111,13 +77,6 @@ export default function GoodsLines({
               value={l.unitPrice}
               onChange={(e) => patch(i, { unitPrice: Number(e.target.value) })}
             />
-            <Input
-              placeholder="备注"
-              className="col-span-2 md:col-span-1"
-              value={l.note}
-              onChange={(e) => patch(i, { note: e.target.value })}
-            />
-
             <Button
               type="button"
               size="icon-sm"
@@ -131,7 +90,6 @@ export default function GoodsLines({
           </LineItemRow>
         ))}
       </LineItemsFrame>
-      {qtyHint && <p className="text-xs text-muted-foreground">{qtyHint}</p>}
     </div>
   );
 }

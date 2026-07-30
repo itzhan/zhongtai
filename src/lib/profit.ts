@@ -80,7 +80,7 @@ export async function allProjectProfits(): Promise<Map<number, ProjectProfit>> {
   const add = (m: Map<number, number>, k: number, v: number) => m.set(k, (m.get(k) ?? 0) + v);
 
   for (const r of deskItems) add(revenue, r.desk.projectId, r.quantity * r.unitPrice);
-  for (const p of purchases) add(purchaseCost, p.projectId, p._sum.totalAmount ?? 0);
+  for (const p of purchases) if (p.projectId !== null) add(purchaseCost, p.projectId, p._sum.totalAmount ?? 0);
   for (const s of supplierItems) add(supplierCost, s.supplier.projectId, s.quantity * s.unitPrice);
 
   const ids = new Set([...revenue.keys(), ...purchaseCost.keys(), ...supplierCost.keys()]);

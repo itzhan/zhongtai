@@ -16,7 +16,70 @@ const prisma = new PrismaClient();
 const INIT_SQL = join(dirname(fileURLToPath(import.meta.url)), "..", "prisma", "init.sql");
 
 /// schema 演进时往这里加: { table, columns: [[列名, 完整 DDL 片段]] }
-const MANIFEST = [];
+const MANIFEST = [
+  ...[
+    "User", "Project", "Product", "Desk", "Supplier", "ResourceSource",
+    "CardResource", "ProxyResource", "EmailResource", "ResourceBusiness",
+    "ResourceAllocation", "ResourceRequest", "Purchase", "ProductionBatch",
+  ].map((table) => ({ table, columns: [["deletedAt", '"deletedAt" DATETIME']] })),
+  {
+    table: "ProductionBatch",
+    columns: [
+      ["resultData", '"resultData" TEXT NOT NULL DEFAULT \'\''],
+      ["status", '"status" TEXT NOT NULL DEFAULT \'in_use\''],
+    ],
+  },
+  {
+    table: "EmailResource",
+    columns: [["usage", '"usage" TEXT NOT NULL DEFAULT \'\'']],
+  },
+  {
+    table: "ResourceAllocationItem",
+    columns: [
+      ["business", '"business" TEXT NOT NULL DEFAULT \'\''],
+      ["emailId", '"emailId" INTEGER'],
+      ["proxyId", '"proxyId" INTEGER'],
+      ["cardId", '"cardId" INTEGER'],
+      ["used", '"used" BOOLEAN NOT NULL DEFAULT false'],
+    ],
+  },
+  { table: "Purchase", columns: [["purchaserName", '"purchaserName" TEXT NOT NULL DEFAULT \'\'']] },
+  { table: "Project", columns: [["ownerName", '"ownerName" TEXT NOT NULL DEFAULT \'\'']] },
+  { table: "Desk", columns: [["baseUrl", '"baseUrl" TEXT NOT NULL DEFAULT \'\'']] },
+  { table: "DeskItem", columns: [["productName", '"productName" TEXT NOT NULL DEFAULT \'\'']] },
+  { table: "Supplier", columns: [["baseUrl", '"baseUrl" TEXT NOT NULL DEFAULT \'\'']] },
+  { table: "SupplierItem", columns: [["productName", '"productName" TEXT NOT NULL DEFAULT \'\''], ["apiKey", '"apiKey" TEXT NOT NULL DEFAULT \'\'']] },
+];
+
+async function makePurchaseProjectOptional() {
+  const cols = await prisma.$queryRawUnsafe('PRAGMA table_info("Purchase")');
+  const project = cols.find((c) => c.name === "projectId");
+  if (!project || Number(project.notnull) === 0) return;
+  await prisma.$executeRawUnsafe("PRAGMA foreign_keys=OFF");
+  await prisma.$executeRawUnsafe(`CREATE TABLE "Purchase_next" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, "projectId" INTEGER,
+    "requestId" INTEGER, "kind" TEXT NOT NULL, "purchaserId" INTEGER NOT NULL,
+    "sourceId" INTEGER, "content" TEXT NOT NULL, "detail" TEXT NOT NULL DEFAULT '',
+    "quantity" INTEGER NOT NULL DEFAULT 0, "totalAmount" REAL NOT NULL DEFAULT 0,
+    "purchaseDate" TEXT NOT NULL, "notes" TEXT NOT NULL DEFAULT '',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL,
+    FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    FOREIGN KEY ("requestId") REFERENCES "ResourceRequest" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    FOREIGN KEY ("purchaserId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    FOREIGN KEY ("sourceId") REFERENCES "ResourceSource" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+  )`);
+  await prisma.$executeRawUnsafe(`INSERT INTO "Purchase_next" SELECT * FROM "Purchase"`);
+  await prisma.$executeRawUnsafe(`DROP TABLE "Purchase"`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE "Purchase_next" RENAME TO "Purchase"`);
+  for (const sql of [
+    'CREATE INDEX "Purchase_projectId_idx" ON "Purchase"("projectId")',
+    'CREATE INDEX "Purchase_requestId_idx" ON "Purchase"("requestId")',
+    'CREATE INDEX "Purchase_kind_idx" ON "Purchase"("kind")',
+    'CREATE INDEX "Purchase_purchaseDate_idx" ON "Purchase"("purchaseDate")',
+  ]) await prisma.$executeRawUnsafe(sql);
+  await prisma.$executeRawUnsafe("PRAGMA foreign_keys=ON");
+  console.log("[migrate] Purchase.projectId is now optional");
+}
 
 /// 把 prisma 生成的 SQL 拆成可幂等执行的语句。
 function loadStatements() {
@@ -48,6 +111,7 @@ async function existingCols(table) {
 }
 
 async function main() {
+  await makePurchaseProjectOptional();
   const statements = loadStatements();
   for (const sql of statements) {
     await prisma.$executeRawUnsafe(sql);

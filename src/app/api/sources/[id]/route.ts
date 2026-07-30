@@ -70,6 +70,6 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
     );
   }
 
-  await prisma.resourceSource.delete({ where: { id } });
+  await prisma.resourceSource.update({ where: { id }, data: { deletedAt: new Date() } });
   return NextResponse.json({ ok: true });
 }

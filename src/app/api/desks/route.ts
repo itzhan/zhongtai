@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { badRequest, requireRole, requireRoleFresh } from "@/lib/guard";
 import { isOneOf, PARTNER_STATUS } from "@/lib/enums";
 import { jsonItem, jsonItems } from "@/lib/mask";
-import { DESK_INCLUDE, validateLines } from "@/lib/partner";
+import { DESK_INCLUDE, resolveLines } from "@/lib/partner";
 import { ROLES } from "@/lib/rbac";
 
 export const runtime = "nodejs";
@@ -43,7 +43,8 @@ export async function POST(req: Request) {
     demand: string;
     status: string;
     notes: string;
-    items: { productId: number; quantity: number; unitPrice: number; note?: string }[];
+    baseUrl: string;
+    items: { productName: string; unitPrice: number; note?: string }[];
   }>;
 
   const name = (body.name ?? "").trim();
@@ -53,8 +54,9 @@ export async function POST(req: Request) {
     return badRequest("状态非法");
   }
 
-  const lines = validateLines(body.items);
+  const lines = await resolveLines(prisma, body.items, Number(body.projectId));
   if (typeof lines === "string") return badRequest(lines);
+  const deskLines = lines.map(({ apiKey: _apiKey, ...line }) => line);
 
   // 销售只能建自己的台子; 财务/管理员可以指定归属销售
   const ownerId = g.session.role === ROLES.SALES ? g.session.id : (body.ownerId ?? g.session.id);
@@ -65,10 +67,11 @@ export async function POST(req: Request) {
       ownerId,
       projectId: Number(body.projectId),
       contact: body.contact ?? "",
+      baseUrl: body.baseUrl ?? "",
       demand: body.demand ?? "",
       status: body.status ?? "active",
       notes: body.notes ?? "",
-      items: { create: lines },
+      items: { create: deskLines },
     },
     include: DESK_INCLUDE,
   });

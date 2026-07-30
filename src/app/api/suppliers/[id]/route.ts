@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { badRequest, notFound, parseId, requireRole, requireRoleFresh } from "@/lib/guard";
 import { isOneOf, PARTNER_STATUS } from "@/lib/enums";
 import { jsonItem } from "@/lib/mask";
-import { SUPPLIER_INCLUDE, validateLines } from "@/lib/partner";
+import { SUPPLIER_INCLUDE, resolveLines } from "@/lib/partner";
 import { ROLES } from "@/lib/rbac";
 
 export const runtime = "nodejs";
@@ -38,7 +38,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     channel: string;
     status: string;
     notes: string;
-    items: { productId: number; quantity: number; unitPrice: number; note?: string }[];
+    baseUrl: string;
+    items: { productName: string; apiKey?: string; unitPrice: number; note?: string }[];
   }>;
 
   const data: Record<string, unknown> = {};
@@ -52,15 +53,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (body.contact !== undefined) data.contact = body.contact;
   if (body.channel !== undefined) data.channel = body.channel;
   if (body.notes !== undefined) data.notes = body.notes;
+  if (body.baseUrl !== undefined) data.baseUrl = body.baseUrl.trim();
   if (body.status !== undefined) {
     if (!isOneOf(PARTNER_STATUS, body.status)) return badRequest("状态非法");
     data.status = body.status;
   }
 
-  const lines = body.items === undefined ? null : validateLines(body.items);
-  if (typeof lines === "string") return badRequest(lines);
-
   const item = await prisma.$transaction(async (tx) => {
+    const lines = body.items === undefined ? null : await resolveLines(tx, body.items, Number(body.projectId ?? existing.projectId));
+    if (typeof lines === "string") throw new Error(lines);
     if (lines !== null) {
       await tx.supplierItem.deleteMany({ where: { supplierId: id } });
       data.items = { create: lines };
@@ -81,6 +82,6 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
   const existing = await prisma.supplier.findUnique({ where: { id } });
   if (!existing) return notFound("供货方不存在");
 
-  await prisma.supplier.delete({ where: { id } });
+  await prisma.supplier.update({ where: { id }, data: { deletedAt: new Date() } });
   return NextResponse.json({ ok: true });
 }

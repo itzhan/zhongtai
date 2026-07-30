@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { badRequest, requireRole, requireRoleFresh } from "@/lib/guard";
 import { isOneOf, PARTNER_STATUS } from "@/lib/enums";
 import { jsonItem, jsonItems } from "@/lib/mask";
-import { SUPPLIER_INCLUDE, validateLines } from "@/lib/partner";
+import { SUPPLIER_INCLUDE, resolveLines } from "@/lib/partner";
 import { ROLES } from "@/lib/rbac";
 
 export const runtime = "nodejs";
@@ -43,7 +43,8 @@ export async function POST(req: Request) {
     channel: string;
     status: string;
     notes: string;
-    items: { productId: number; quantity: number; unitPrice: number; note?: string }[];
+    baseUrl: string;
+    items: { productName: string; apiKey?: string; unitPrice: number; note?: string }[];
   }>;
 
   const name = (body.name ?? "").trim();
@@ -53,7 +54,7 @@ export async function POST(req: Request) {
     return badRequest("状态非法");
   }
 
-  const lines = validateLines(body.items);
+  const lines = await resolveLines(prisma, body.items, Number(body.projectId));
   if (typeof lines === "string") return badRequest(lines);
 
   const item = await prisma.supplier.create({
@@ -63,6 +64,7 @@ export async function POST(req: Request) {
       projectId: Number(body.projectId),
       contact: body.contact ?? "",
       channel: body.channel ?? "",
+      baseUrl: body.baseUrl ?? "",
       status: body.status ?? "active",
       notes: body.notes ?? "",
       items: { create: lines },

@@ -1,5 +1,6 @@
 import MobileNav from "./MobileNav";
 import Sidebar from "./Sidebar";
+import DevRoleSwitcher from "./DevRoleSwitcher";
 
 export default function Shell({ children }: { children: React.ReactNode }) {
   return (
@@ -13,6 +14,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       <div className="flex-1 min-w-0 flex flex-col">
         <MobileNav />
         <div className="flex-1 px-3 sm:px-4 md:px-8 py-4 md:py-6 mx-auto w-full max-w-[1600px]">
+          <DevRoleSwitcher />
           {children}
         </div>
       </div>

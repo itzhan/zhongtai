@@ -6,6 +6,7 @@ export interface Project {
   name: string;
   status: ProjectStatus;
   ownerId: number | null;
+  ownerName: string;
   description: string;
   startedAt: string;
   owner: { id: number; displayName: string } | null;

@@ -1,4 +1,4 @@
-import type { RequestStatus, ResourceKind } from "@/lib/enums";
+import type { BatchStatus, RequestStatus, ResourceKind } from "@/lib/enums";
 
 export interface ProductionBatch {
   id: number;
@@ -6,8 +6,10 @@ export interface ProductionBatch {
   productId: number;
   quantity: number;
   batchDate: string;
+  status: BatchStatus;
   operatorId: number;
   note: string;
+  resultData: string;
   product: { id: number; name: string };
   project: { id: number; code: string; name: string };
   operator: { id: number; displayName: string };

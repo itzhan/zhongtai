@@ -5,10 +5,12 @@ import { Inbox, Loader2, MoreHorizontal, Plus, Settings2, Upload } from "lucide-
 import DataState from "@/components/DataState";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import RoleGate from "@/components/RoleGate";
+import ResourceHistoryDialog from "@/components/ResourceHistoryDialog";
 import SecretCell from "@/components/SecretCell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -58,6 +60,7 @@ import InboxSheet from "./inbox-sheet";
 
 const NONE = "none";
 const EDITORS = [ROLES.RESOURCE];
+interface ResourceBusiness { id: number; name: string; active: boolean }
 
 export default function EmailsPage() {
   const [q, setQ] = useState("");
@@ -70,6 +73,7 @@ export default function EmailsPage() {
     [debouncedQ, providerKey, status],
   );
   const { items, loading, error, reload } = useList<EmailResource>(path);
+  const { items: businesses } = useList<ResourceBusiness>("/api/resource-businesses");
 
   const [providers, setProviders] = useState<MailProviderInfo[]>([]);
   const loadProviders = () =>
@@ -87,6 +91,7 @@ export default function EmailsPage() {
   const [providerOpen, setProviderOpen] = useState(false);
   const [inboxOf, setInboxOf] = useState<EmailResource | null>(null);
   const [deleting, setDeleting] = useState<EmailResource | null>(null);
+  const [history, setHistory] = useState<EmailResource | null>(null);
 
   const providerLabel = (key: string) => providers.find((p) => p.key === key)?.label ?? key;
 
@@ -170,6 +175,7 @@ export default function EmailsPage() {
                   <TableHead>邮箱</TableHead>
                   <TableHead>密码</TableHead>
                   <TableHead>接码类型</TableHead>
+                  <TableHead>适用业务</TableHead>
                   <TableHead>来源</TableHead>
                   <TableHead>状态</TableHead>
                   <TableHead className="w-24" />
@@ -178,7 +184,7 @@ export default function EmailsPage() {
               </TableHeader>
               <TableBody>
                 {items.map((e) => (
-                  <TableRow key={e.id}>
+                  <TableRow key={e.id} className="cursor-pointer" onClick={() => setHistory(e)}>
                     <TableCell className="font-medium text-sm">{e.address}</TableCell>
                     <TableCell>
                       <SecretCell value={e.password} />
@@ -186,6 +192,7 @@ export default function EmailsPage() {
                     <TableCell>
                       <Badge variant="info">{providerLabel(e.providerKey)}</Badge>
                     </TableCell>
+                    <TableCell><div className="flex flex-wrap gap-1">{e.usage.split(",").filter(Boolean).map((v) => <Badge key={v} variant="outline">{v}</Badge>)}</div></TableCell>
                     <TableCell className="text-muted-foreground text-xs">
                       {e.source?.name ?? "-"}
                     </TableCell>
@@ -194,15 +201,15 @@ export default function EmailsPage() {
                         {RESOURCE_STATUS_LABEL[e.status]}
                       </Badge>
                     </TableCell>
-                    <TableCell>
+                    <TableCell onClick={(event) => event.stopPropagation()}>
                       <Button size="sm" variant="secondary" onClick={() => setInboxOf(e)}>
                         <Inbox size={14} />
                         收件箱
                       </Button>
                     </TableCell>
-                    <TableCell>
+                    <TableCell onClick={(event) => event.stopPropagation()}>
                       <RoleGate roles={EDITORS}>
-                        <DropdownMenu>
+                        <DropdownMenu modal={false}>
                           <DropdownMenuTrigger asChild>
                             <Button size="icon-sm" variant="ghost" aria-label="更多">
                               <MoreHorizontal size={16} />
@@ -210,7 +217,7 @@ export default function EmailsPage() {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem
-                              onClick={() => {
+                              onSelect={() => {
                                 setEditing(e);
                                 setOpen(true);
                               }}
@@ -219,7 +226,7 @@ export default function EmailsPage() {
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-destructive"
-                              onClick={() => setDeleting(e)}
+                              onSelect={() => setDeleting(e)}
                             >
                               删除
                             </DropdownMenuItem>
@@ -240,12 +247,14 @@ export default function EmailsPage() {
         onOpenChange={setOpen}
         initial={editing}
         providers={providers}
+        businesses={businesses}
         onSaved={reload}
       />
       <BulkEmailDialog
         open={bulkOpen}
         onOpenChange={setBulkOpen}
         providers={providers}
+        businesses={businesses}
         onSaved={reload}
       />
       <ProviderConfigDialog
@@ -255,15 +264,17 @@ export default function EmailsPage() {
         onSaved={loadProviders}
       />
       <InboxSheet email={inboxOf} onOpenChange={(v) => !v && setInboxOf(null)} />
+      <ResourceHistoryDialog kind="email" resource={history} label={history?.address ?? "邮箱"} details={history ? [{ label: "邮箱", value: history.address }, { label: "密码", value: history.password }, { label: "接码类型", value: providerLabel(history.providerKey) }, { label: "适用业务", value: history.usage }, { label: "辅助信息", value: history.recoveryInfo }, { label: "来源", value: history.source?.name }, { label: "备注", value: history.notes }] : []} onOpenChange={(v) => !v && setHistory(null)} />
 
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(v) => !v && setDeleting(null)}
         title={`删除邮箱「${deleting?.address ?? ""}」？`}
+        description="删除后将进入回收站，可随时恢复。"
         onConfirm={async () => {
           if (!deleting) return;
           const ok = await mutate(() => api.del(`/api/emails/${deleting.id}`), {
-            success: "已删除",
+            success: "已移至回收站",
             error: "删除失败",
           });
           setDeleting(null);
@@ -279,18 +290,21 @@ function EmailDialog({
   onOpenChange,
   initial,
   providers,
+  businesses,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   initial: EmailResource | null;
   providers: MailProviderInfo[];
+  businesses: ResourceBusiness[];
   onSaved: () => void;
 }) {
   const [address, setAddress] = useState("");
   const [password, setPassword] = useState("");
   const [providerKey, setProviderKey] = useState("mock");
   const [recoveryInfo, setRecoveryInfo] = useState("");
+  const [usage, setUsage] = useState<string[]>([]);
   const [status, setStatus] = useState<ResourceStatus>("available");
   const [sourceId, setSourceId] = useState(NONE);
   const [notes, setNotes] = useState("");
@@ -304,6 +318,7 @@ function EmailDialog({
     setPassword(initial?.password ?? "");
     setProviderKey(initial?.providerKey ?? providers[0]?.key ?? "mock");
     setRecoveryInfo(initial?.recoveryInfo ?? "");
+    setUsage(initial?.usage.split(",").filter(Boolean) ?? []);
     setStatus(initial?.status ?? "available");
     setSourceId(initial?.sourceId ? String(initial.sourceId) : NONE);
     setNotes(initial?.notes ?? "");
@@ -317,6 +332,7 @@ function EmailDialog({
       password,
       providerKey,
       recoveryInfo,
+      usage: usage.join(","),
       status,
       sourceId: sourceId === NONE ? null : Number(sourceId),
       notes,
@@ -411,6 +427,12 @@ function EmailDialog({
             <Input value={recoveryInfo} onChange={(e) => setRecoveryInfo(e.target.value)} />
           </Field>
 
+          <Field label="适用业务" hint="邮箱可同时适用多个业务">
+            <div className="flex flex-wrap gap-3 rounded-lg border border-border p-3">
+              {businesses.filter((b) => b.active).map((b) => <label key={b.id} className="flex items-center gap-2 text-sm cursor-pointer"><Checkbox checked={usage.includes(b.name)} onCheckedChange={(checked) => setUsage((current) => checked ? [...current, b.name] : current.filter((v) => v !== b.name))} />{b.name}</label>)}
+            </div>
+          </Field>
+
           <Field label="备注">
             <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </Field>
@@ -455,16 +477,19 @@ function BulkEmailDialog({
   open,
   onOpenChange,
   providers,
+  businesses,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   providers: MailProviderInfo[];
+  businesses: ResourceBusiness[];
   onSaved: () => void;
 }) {
   const [text, setText] = useState("");
   const [providerKey, setProviderKey] = useState("mock");
   const [sourceId, setSourceId] = useState(NONE);
+  const [usage, setUsage] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const sources = useSourceOptions(open);
 
@@ -472,6 +497,7 @@ function BulkEmailDialog({
     if (!open) return;
     setText("");
     setProviderKey(providers[0]?.key ?? "mock");
+    setUsage([]);
   }, [open, providers]);
 
   const { rows, badLines } = useMemo(() => parseEmails(text), [text]);
@@ -487,6 +513,7 @@ function BulkEmailDialog({
             bulk: rows,
             providerKey,
             sourceId: sourceId === NONE ? null : Number(sourceId),
+            usage: usage.join(","),
           }),
         { error: "导入失败" },
       );
@@ -564,6 +591,7 @@ function BulkEmailDialog({
               </Select>
             </Field>
           </div>
+          <Field label="统一适用业务"><div className="flex flex-wrap gap-3 rounded-lg border border-border p-3">{businesses.filter((b) => b.active).map((b) => <label key={b.id} className="flex items-center gap-2 text-sm cursor-pointer"><Checkbox checked={usage.includes(b.name)} onCheckedChange={(checked) => setUsage((current) => checked ? [...current, b.name] : current.filter((v) => v !== b.name))} />{b.name}</label>)}</div></Field>
         </div>
 
         <DialogFooter>

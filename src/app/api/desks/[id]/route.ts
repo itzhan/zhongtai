@@ -10,7 +10,7 @@ import {
 } from "@/lib/guard";
 import { isOneOf, PARTNER_STATUS } from "@/lib/enums";
 import { jsonItem } from "@/lib/mask";
-import { DESK_INCLUDE, validateLines } from "@/lib/partner";
+import { DESK_INCLUDE, resolveLines } from "@/lib/partner";
 import { ROLES } from "@/lib/rbac";
 
 export const runtime = "nodejs";
@@ -52,7 +52,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     demand: string;
     status: string;
     notes: string;
-    items: { productId: number; quantity: number; unitPrice: number; note?: string }[];
+    baseUrl: string;
+    items: { productName: string; unitPrice: number; note?: string }[];
   }>;
 
   const data: Record<string, unknown> = {};
@@ -63,6 +64,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
   if (body.projectId !== undefined) data.projectId = Number(body.projectId);
   if (body.contact !== undefined) data.contact = body.contact;
+  if (body.baseUrl !== undefined) data.baseUrl = body.baseUrl.trim();
   if (body.demand !== undefined) data.demand = body.demand;
   if (body.notes !== undefined) data.notes = body.notes;
   if (body.status !== undefined) {
@@ -76,13 +78,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   // 明细行整体替换: 前端是一张表格, 逐行 diff 的复杂度远超收益,
   // 而且删中间行 + 改单价这类组合用 diff 很容易出错。
-  const lines = body.items === undefined ? null : validateLines(body.items);
-  if (typeof lines === "string") return badRequest(lines);
-
   const item = await prisma.$transaction(async (tx) => {
+    const lines = body.items === undefined ? null : await resolveLines(tx, body.items, Number(body.projectId ?? existing.projectId));
+    if (typeof lines === "string") throw new Error(lines);
     if (lines !== null) {
       await tx.deskItem.deleteMany({ where: { deskId: id } });
-      data.items = { create: lines };
+      data.items = { create: lines.map(({ apiKey: _apiKey, ...line }) => line) };
     }
     return tx.desk.update({ where: { id }, data, include: DESK_INCLUDE });
   });
@@ -103,6 +104,6 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
     return forbidden("无权删除他人的台子");
   }
 
-  await prisma.desk.delete({ where: { id } });
+  await prisma.desk.update({ where: { id }, data: { deletedAt: new Date() } });
   return NextResponse.json({ ok: true });
 }

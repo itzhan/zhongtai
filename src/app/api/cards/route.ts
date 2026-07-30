@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { badRequest, requireRole, requireRoleFresh } from "@/lib/guard";
-import { isOneOf, RESOURCE_STATUS } from "@/lib/enums";
+import { CARD_STATUS, isOneOf } from "@/lib/enums";
 import { jsonItem, jsonItems } from "@/lib/mask";
 import { ROLES } from "@/lib/rbac";
 
@@ -55,7 +55,7 @@ export async function POST(req: Request) {
     bulk: { cardNo: string; expiry: string; cvv: string; amount: number }[];
   }>;
 
-  if (body.status !== undefined && !isOneOf(RESOURCE_STATUS, body.status)) {
+  if (body.status !== undefined && !isOneOf(CARD_STATUS, body.status)) {
     return badRequest("状态非法");
   }
 

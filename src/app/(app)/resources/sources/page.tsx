@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Loader2, MoreHorizontal, Plus } from "lucide-react";
 import DataState from "@/components/DataState";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import RecordDetailDialog from "@/components/RecordDetailDialog";
 import { useCan } from "@/components/RoleProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -66,6 +67,7 @@ export default function SourcesPage() {
   const [editing, setEditing] = useState<ResourceSource | null>(null);
   const [open, setOpen] = useState(false);
   const [deleting, setDeleting] = useState<ResourceSource | null>(null);
+  const [viewing, setViewing] = useState<ResourceSource | null>(null);
 
   const openNew = () => {
     setEditing(null);
@@ -133,7 +135,7 @@ export default function SourcesPage() {
                   const kinds = s.kinds ? s.kinds.split(",").filter(Boolean) : [];
                   const total = s._count.cards + s._count.proxies + s._count.emails;
                   return (
-                    <TableRow key={s.id}>
+                    <TableRow key={s.id} className="cursor-pointer" onClick={() => setViewing(s)}>
                       <TableCell>
                         <p className="font-medium">{s.name}</p>
                         {s.contact && <p className="text-xs text-muted-foreground">{s.contact}</p>}
@@ -173,8 +175,8 @@ export default function SourcesPage() {
                           {s.active ? "启用" : "停用"}
                         </Badge>
                       </TableCell>
-                      <TableCell>
-                        <DropdownMenu>
+                      <TableCell onClick={(event) => event.stopPropagation()}>
+                        <DropdownMenu modal={false}>
                           <DropdownMenuTrigger asChild>
                             <Button size="icon-sm" variant="ghost" aria-label="更多">
                               <MoreHorizontal size={16} />
@@ -182,7 +184,7 @@ export default function SourcesPage() {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem
-                              onClick={() => {
+                              onSelect={() => {
                                 setEditing(s);
                                 setOpen(true);
                               }}
@@ -191,7 +193,7 @@ export default function SourcesPage() {
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-destructive"
-                              onClick={() => setDeleting(s)}
+                              onSelect={() => setDeleting(s)}
                             >
                               删除
                             </DropdownMenuItem>
@@ -208,16 +210,17 @@ export default function SourcesPage() {
       </Card>
 
       <SourceDialog open={open} onOpenChange={setOpen} initial={editing} onSaved={reload} />
+      <RecordDetailDialog open={viewing !== null} onOpenChange={(v) => !v && setViewing(null)} title="资源来源详情" fields={viewing ? [{ label: "名称", value: viewing.name }, { label: "状态", value: viewing.active ? "启用" : "停用" }, { label: "渠道", value: viewing.channel }, { label: "联系方式", value: viewing.contact }, { label: "覆盖类型", value: viewing.kinds.split(",").filter(Boolean).map((kind) => RESOURCE_KIND_LABEL[kind as ResourceKind]).join("、") || "通用" }, { label: "关联资源", value: `${viewing._count.emails} 邮箱 / ${viewing._count.proxies} IP / ${viewing._count.cards} 卡` }, ...(showCost ? [{ label: "参考单价", value: `邮箱 ${fmtMoneyShort(viewing.emailPrice ?? 0)} / IP ${fmtMoneyShort(viewing.proxyPrice ?? 0)} / 卡 ${fmtMoneyShort(viewing.cardPrice ?? 0)}` }, { label: "价格说明", value: viewing.priceInfo }] : []), { label: "渠道介绍", value: viewing.notes, wide: true }] : []} />
 
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(v) => !v && setDeleting(null)}
         title={`删除来源「${deleting?.name ?? ""}」？`}
-        description="已关联资源的来源无法删除，可改为「停用」。"
+        description="已关联资源的来源暂不能移入回收站，可改为「停用」。"
         onConfirm={async () => {
           if (!deleting) return;
           const ok = await mutate(() => api.del(`/api/sources/${deleting.id}`), {
-            success: "已删除",
+            success: "已移至回收站",
             error: "删除失败",
           });
           setDeleting(null);

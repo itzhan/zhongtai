@@ -19,14 +19,12 @@ export async function GET(req: Request) {
   if (!g.ok) return g.res;
 
   const sp = new URL(req.url).searchParams;
-  const projectId = sp.get("projectId");
   const kind = sp.get("kind");
   const from = sp.get("from");
   const to = sp.get("to");
 
   const items = await prisma.purchase.findMany({
     where: {
-      ...(projectId && projectId !== "all" ? { projectId: Number(projectId) } : {}),
       ...(kind && kind !== "all" ? { kind } : {}),
       ...(from || to
         ? { purchaseDate: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
@@ -44,19 +42,16 @@ export async function POST(req: Request) {
   if (!g.ok) return g.res;
 
   const body = (await req.json().catch(() => ({}))) as Partial<{
-    projectId: number;
     kind: string;
     content: string;
     detail: string;
-    quantity: number;
     totalAmount: number;
     purchaseDate: string;
     sourceId: number | null;
     purchaserId: number;
-    notes: string;
+    purchaserName: string;
   }>;
 
-  if (!body.projectId) return badRequest("请选择归属项目");
   if (!isOneOf(PURCHASE_KIND, body.kind)) return badRequest("采购类型非法");
   const content = (body.content ?? "").trim();
   if (!content) return badRequest("请填写采购内容");
@@ -65,23 +60,22 @@ export async function POST(req: Request) {
   }
   const totalAmount = Number(body.totalAmount);
   if (!Number.isFinite(totalAmount) || totalAmount < 0) return badRequest("总金额非法");
+  const purchaserName = (body.purchaserName ?? "").trim();
+  if (!purchaserName) return badRequest("请填写采购人");
 
   const item = await prisma.purchase.create({
     data: {
-      projectId: Number(body.projectId),
+      projectId: null,
       kind: body.kind,
       content,
       detail: body.detail ?? "",
-      quantity: Number(body.quantity) || 0,
+      quantity: 0,
       totalAmount,
       purchaseDate: body.purchaseDate,
       sourceId: body.sourceId ?? null,
-      // 采购人默认是当前用户; 管理员可代填
-      purchaserId:
-        g.session.role === ROLES.ADMIN && body.purchaserId
-          ? Number(body.purchaserId)
-          : g.session.id,
-      notes: body.notes ?? "",
+      purchaserId: g.session.id,
+      purchaserName,
+      notes: "",
     },
     include: INCLUDE,
   });

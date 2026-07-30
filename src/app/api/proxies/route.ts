@@ -51,6 +51,7 @@ export async function POST(req: Request) {
     password: string;
     region: string;
     rotateUrl: string;
+    expiresAt: string | null;
     status: string;
     sourceId: number | null;
     projectId: number | null;
@@ -82,6 +83,7 @@ export async function POST(req: Request) {
       region: body.region ?? "",
       // 换 IP 接口只对动态 IP 有意义
       rotateUrl: body.ipType === "dynamic" ? (body.rotateUrl ?? "") : "",
+      expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
       status: body.status ?? "available",
       sourceId: body.sourceId ?? null,
       projectId: body.projectId ?? null,

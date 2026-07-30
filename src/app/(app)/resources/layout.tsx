@@ -5,7 +5,7 @@ import TabNav from "@/components/TabNav";
 export default function ResourcesLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
-      <PageHeader title="资源库" subtitle="卡 / 代理 IP / 邮箱 与来源渠道" />
+      <PageHeader title="资源库" subtitle="卡 / 代理 IP / 邮箱" />
       <TabNav className="mb-4" />
       {children}
     </>

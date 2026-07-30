@@ -1,25 +1,12 @@
-import { SignJWT, jwtVerify } from "jose";
+import { SignJWT } from "jose";
 import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
 import { prisma } from "./db";
-import { isRole, type Role } from "./rbac";
+import { isRole } from "./rbac";
+import { getJwtSecret, SESSION_COOKIE, verifyToken, type Session } from "./session";
 
-const COOKIE_NAME = "bm_session";
 const ALG = "HS256";
 const MAX_AGE = 60 * 60 * 24 * 7; // 7 天
-
-export interface Session {
-  id: number;
-  username: string;
-  displayName: string;
-  role: Role;
-}
-
-function getSecret() {
-  const s = process.env.JWT_SECRET;
-  if (!s) throw new Error("JWT_SECRET not set");
-  return new TextEncoder().encode(s);
-}
 
 /// 用户名 + 密码校验。返回 null 表示失败 —— 不区分"用户不存在"与
 /// "密码错误", 避免用户名枚举。
@@ -44,37 +31,18 @@ export async function issueToken(s: Session): Promise<string> {
     .setSubject(String(s.id))
     .setIssuedAt()
     .setExpirationTime("7d")
-    .sign(getSecret());
-}
-
-/// Edge 与 Node 均可用 —— middleware 直接调这个, 不要重复实现一份 verify。
-export async function verifyToken(token: string | undefined): Promise<Session | null> {
-  if (!token) return null;
-  try {
-    const { payload } = await jwtVerify(token, getSecret());
-    const id = Number(payload.sub);
-    const role = payload.r;
-    if (!Number.isFinite(id) || !isRole(role)) return null;
-    return {
-      id,
-      username: String(payload.u ?? ""),
-      displayName: String(payload.n ?? ""),
-      role,
-    };
-  } catch {
-    return null;
-  }
+    .sign(getJwtSecret());
 }
 
 /// route handler / server component 里取当前会话。
 export async function getSession(): Promise<Session | null> {
   const c = await cookies();
-  return verifyToken(c.get(COOKIE_NAME)?.value);
+  return verifyToken(c.get(SESSION_COOKIE)?.value);
 }
 
 export async function setSessionCookie(token: string) {
   const c = await cookies();
-  c.set(COOKIE_NAME, token, {
+  c.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
@@ -84,8 +52,8 @@ export async function setSessionCookie(token: string) {
 
 export async function clearSessionCookie() {
   const c = await cookies();
-  c.delete(COOKIE_NAME);
+  c.delete(SESSION_COOKIE);
 }
 
 export const hashPassword = (plain: string) => bcrypt.hash(plain, 10);
-export const SESSION_COOKIE = COOKIE_NAME;
+export { SESSION_COOKIE, verifyToken, type Session } from "./session";

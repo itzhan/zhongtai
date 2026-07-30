@@ -128,7 +128,7 @@ export default function ProductDialog({
                 <SelectItem value={NONE}>通用（不绑定项目）</SelectItem>
                 {projects.map((p) => (
                   <SelectItem key={p.id} value={String(p.id)}>
-                    {p.code} · {p.name}
+                    {p.name}
                   </SelectItem>
                 ))}
               </SelectContent>

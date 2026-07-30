@@ -11,7 +11,7 @@ interface Base {
 }
 
 export interface CardResource extends Base {
-  /// 脱敏字段: 只有资源管理员看得到明文
+  /// 卡页直接显示卡号与 CVV。
   cardNo: string | null;
   cvv: string | null;
   expiry: string;
@@ -41,6 +41,7 @@ export interface EmailResource extends Base {
   /// 脱敏字段
   password: string | null;
   recoveryInfo: string;
+  usage: string;
 }
 
 export interface ResourceSource {

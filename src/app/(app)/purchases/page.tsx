@@ -42,7 +42,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useList } from "@/hooks/use-list";
-import { useProjectOptions, useSourceOptions } from "@/hooks/use-options";
+import { useSourceOptions } from "@/hooks/use-options";
 import { api, mutate } from "@/lib/api-client";
 import { PURCHASE_KIND, PURCHASE_KIND_LABEL, type PurchaseKind } from "@/lib/enums";
 import { fmtMoneyShort, todayStr } from "@/lib/format";
@@ -58,21 +58,20 @@ const KIND_VARIANT: Record<PurchaseKind, "info" | "purple" | "warning" | "second
 };
 
 export default function PurchasesPage() {
-  const [projectId, setProjectId] = useState("all");
   const [kind, setKind] = useState("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
   const path = useMemo(
-    () => `/api/purchases?${new URLSearchParams({ projectId, kind, from, to }).toString()}`,
-    [projectId, kind, from, to],
+    () => `/api/purchases?${new URLSearchParams({ kind, from, to }).toString()}`,
+    [kind, from, to],
   );
   const { items, loading, error, reload } = useList<Purchase>(path);
-  const projects = useProjectOptions();
 
   const [editing, setEditing] = useState<Purchase | null>(null);
   const [open, setOpen] = useState(false);
   const [deleting, setDeleting] = useState<Purchase | null>(null);
+  const [viewing, setViewing] = useState<Purchase | null>(null);
 
   const stats = useMemo(() => {
     const amounts = items.map((p) => p.totalAmount ?? 0);
@@ -87,7 +86,7 @@ export default function PurchasesPage() {
     <>
       <PageHeader
         title="采购记录"
-        subtitle="各项目的采购花费"
+        subtitle="资源采购花费与采购人记录"
         actions={
           <Button
             className="rounded-full"
@@ -120,19 +119,6 @@ export default function PurchasesPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
-        <Select value={projectId} onValueChange={setProjectId}>
-          <SelectTrigger className="w-44">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">全部项目</SelectItem>
-            {projects.map((p) => (
-              <SelectItem key={p.id} value={String(p.id)}>
-                {p.code} · {p.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
         <Select value={kind} onValueChange={setKind}>
           <SelectTrigger className="w-32">
             <SelectValue />
@@ -179,7 +165,6 @@ export default function PurchasesPage() {
                   <TableHead>类型</TableHead>
                   <TableHead>采购内容</TableHead>
                   <TableHead>采购人</TableHead>
-                  <TableHead>项目</TableHead>
                   <TableHead>来源</TableHead>
                   <TableHead className="text-right">总金额</TableHead>
                   <TableHead className="w-10" />
@@ -187,7 +172,7 @@ export default function PurchasesPage() {
               </TableHeader>
               <TableBody>
                 {items.map((p) => (
-                  <TableRow key={p.id}>
+                  <TableRow key={p.id} className="cursor-pointer" onClick={() => setViewing(p)}>
                     <TableCell className="font-mono text-xs">{p.purchaseDate}</TableCell>
                     <TableCell>
                       <Badge variant={KIND_VARIANT[p.kind]}>{PURCHASE_KIND_LABEL[p.kind]}</Badge>
@@ -201,10 +186,7 @@ export default function PurchasesPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {p.purchaser.displayName}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-xs">
-                      {p.project.name}
+                      {p.purchaserName || p.purchaser.displayName}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-xs">
                       {p.source?.name ?? "-"}
@@ -216,7 +198,7 @@ export default function PurchasesPage() {
                         fmtMoneyShort(p.totalAmount)
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button size="icon-sm" variant="ghost" aria-label="更多">
@@ -250,16 +232,17 @@ export default function PurchasesPage() {
       </Card>
 
       <PurchaseDialog open={open} onOpenChange={setOpen} initial={editing} onSaved={reload} />
+      <Dialog open={viewing !== null} onOpenChange={(v) => !v && setViewing(null)}><DialogContent className="max-w-xl"><DialogHeader><DialogTitle>采购详情</DialogTitle></DialogHeader>{viewing && <div className="space-y-4 text-sm"><div className="grid grid-cols-2 gap-4"><Info label="采购类型" value={PURCHASE_KIND_LABEL[viewing.kind]} /><Info label="采购人" value={viewing.purchaserName || viewing.purchaser.displayName} /><Info label="采购日期" value={viewing.purchaseDate} /><Info label="供应商" value={viewing.source?.name ?? "-"} /><Info label="总金额" value={viewing.totalAmount === null ? "-" : fmtMoneyShort(viewing.totalAmount)} /><Info label="采购内容" value={viewing.content} /></div><div><p className="text-xs text-muted-foreground mb-1">花费详情</p><p className="whitespace-pre-wrap leading-6">{viewing.detail || "-"}</p></div></div>}</DialogContent></Dialog>
 
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(v) => !v && setDeleting(null)}
         title="删除这笔采购记录？"
-        description="删除后该项目的成本会相应减少。关联的申报单不受影响。"
+        description="删除后将进入回收站，项目成本会相应减少；恢复后重新计入。"
         onConfirm={async () => {
           if (!deleting) return;
           const ok = await mutate(() => api.del(`/api/purchases/${deleting.id}`), {
-            success: "已删除",
+            success: "已移至回收站",
             error: "删除失败",
           });
           setDeleting(null);
@@ -268,6 +251,10 @@ export default function PurchasesPage() {
       />
     </>
   );
+}
+
+function Info({ label, value }: { label: string; value: string }) {
+  return <div><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 font-medium break-words">{value}</p></div>;
 }
 
 function PurchaseDialog({
@@ -281,49 +268,42 @@ function PurchaseDialog({
   initial: Purchase | null;
   onSaved: () => void;
 }) {
-  const [projectId, setProjectId] = useState("");
   const [kind, setKind] = useState<PurchaseKind>("email");
   const [content, setContent] = useState("");
   const [detail, setDetail] = useState("");
-  const [quantity, setQuantity] = useState("");
   const [totalAmount, setTotalAmount] = useState("");
   const [purchaseDate, setPurchaseDate] = useState("");
   const [sourceId, setSourceId] = useState(NONE);
-  const [notes, setNotes] = useState("");
+  const [purchaserName, setPurchaserName] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const projects = useProjectOptions(open);
   const sources = useSourceOptions(open);
 
   useEffect(() => {
     if (!open) return;
-    setProjectId(initial?.projectId ? String(initial.projectId) : "");
     setKind(initial?.kind ?? "email");
     setContent(initial?.content ?? "");
     setDetail(initial?.detail ?? "");
-    setQuantity(initial?.quantity ? String(initial.quantity) : "");
     setTotalAmount(initial?.totalAmount != null ? String(initial.totalAmount) : "");
     setPurchaseDate(initial?.purchaseDate ?? todayStr());
     setSourceId(initial?.sourceId ? String(initial.sourceId) : NONE);
-    setNotes(initial?.notes ?? "");
+    setPurchaserName(initial?.purchaserName || initial?.purchaser.displayName || "");
   }, [open, initial]);
 
   async function save() {
-    if (!projectId) return toast.warning("请选择归属项目");
+    if (!purchaserName.trim()) return toast.warning("请填写采购人");
     if (!content.trim()) return toast.warning("请填写采购内容");
     const amt = Number(totalAmount);
     if (!Number.isFinite(amt) || amt < 0) return toast.warning("总金额非法");
 
     const payload = {
-      projectId: Number(projectId),
       kind,
       content: content.trim(),
       detail,
-      quantity: Number(quantity) || 0,
       totalAmount: amt,
       purchaseDate,
       sourceId: sourceId === NONE ? null : Number(sourceId),
-      notes,
+      purchaserName: purchaserName.trim(),
     };
 
     setSaving(true);
@@ -365,19 +345,8 @@ function PurchaseDialog({
           </Field>
 
           <div className="grid sm:grid-cols-2 gap-3">
-            <Field label="归属项目" required>
-              <Select value={projectId} onValueChange={setProjectId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="选择项目" />
-                </SelectTrigger>
-                <SelectContent>
-                  {projects.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.code} · {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <Field label="采购人" required>
+              <Input value={purchaserName} onChange={(e) => setPurchaserName(e.target.value)} placeholder="填写采购人姓名" />
             </Field>
             <Field label="采购日期" required>
               <Input
@@ -405,17 +374,7 @@ function PurchaseDialog({
             />
           </Field>
 
-          <div className="grid sm:grid-cols-3 gap-3">
-            <Field label="数量">
-              <Input
-                type="number"
-                min={0}
-                inputMode="numeric"
-                className="tabular-nums"
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-              />
-            </Field>
+          <div className="grid sm:grid-cols-2 gap-3">
             <Field label="总金额" required>
               <Input
                 type="number"
@@ -444,9 +403,6 @@ function PurchaseDialog({
             </Field>
           </div>
 
-          <Field label="备注">
-            <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </Field>
         </div>
 
         <DialogFooter>

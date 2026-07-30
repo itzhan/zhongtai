@@ -22,9 +22,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { api, mutate } from "@/lib/api-client";
 import { PROJECT_STATUS, PROJECT_STATUS_LABEL, type ProjectStatus } from "@/lib/enums";
-import type { Project, UserOption } from "./types";
-
-const NONE = "none";
+import type { Project } from "./types";
 
 export default function ProjectDialog({
   open,
@@ -37,41 +35,28 @@ export default function ProjectDialog({
   initial: Project | null;
   onSaved: () => void;
 }) {
-  const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [status, setStatus] = useState<ProjectStatus>("active");
-  const [ownerId, setOwnerId] = useState<string>(NONE);
+  const [ownerName, setOwnerName] = useState("");
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
-  const [users, setUsers] = useState<UserOption[]>([]);
 
   // 每次打开都从 initial 重新灌一遍, 避免上一次编辑的残留
   useEffect(() => {
     if (!open) return;
-    setCode(initial?.code ?? "");
     setName(initial?.name ?? "");
     setStatus(initial?.status ?? "active");
-    setOwnerId(initial?.ownerId ? String(initial.ownerId) : NONE);
+    setOwnerName(initial?.ownerName || initial?.owner?.displayName || "");
     setDescription(initial?.description ?? "");
   }, [open, initial]);
 
-  useEffect(() => {
-    if (!open) return;
-    api
-      .get<{ items: UserOption[] }>("/api/users/options")
-      .then((r) => setUsers(r.items))
-      .catch(() => setUsers([]));
-  }, [open]);
-
   async function save() {
-    if (!code.trim()) return toast.warning("请填写项目代号");
     if (!name.trim()) return toast.warning("请填写项目名称");
 
     const payload = {
-      code: code.trim(),
       name: name.trim(),
       status,
-      ownerId: ownerId === NONE ? null : Number(ownerId),
+      ownerName: ownerName.trim(),
       description,
     };
 
@@ -102,13 +87,6 @@ export default function ProjectDialog({
 
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
-            <Field label="项目代号" required hint="短标识，如 P-2026-01">
-              <Input
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                placeholder="P-2026-01"
-              />
-            </Field>
             <Field label="项目名称" required>
               <Input
                 value={name}
@@ -133,21 +111,7 @@ export default function ProjectDialog({
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="负责人">
-              <Select value={ownerId} onValueChange={setOwnerId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="未指定" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE}>未指定</SelectItem>
-                  {users.map((u) => (
-                    <SelectItem key={u.id} value={String(u.id)}>
-                      {u.displayName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
+            <Field label="负责人"><Input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} placeholder="填写负责人" /></Field>
           </div>
 
           <Field label="说明">
