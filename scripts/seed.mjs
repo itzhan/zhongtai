@@ -47,6 +47,12 @@ async function main() {
     });
   }
 
+  // 演示业务数据默认不写入生产库。本地/演示环境设 SEED_DEMO=1 才会播种。
+  if (process.env.SEED_DEMO !== "1") {
+    console.log("[seed] done (accounts only; set SEED_DEMO=1 for sample data)");
+    return;
+  }
+
   const users = Object.fromEntries(
     (await prisma.user.findMany()).map((user) => [user.role, user]),
   );
