@@ -7,9 +7,9 @@ import { fmtMoneyShort, todayStr } from "@/lib/format";
 
 export const runtime = "nodejs";
 
-/// 仪表盘【由后端按角色组装好卡片】再返回, 而不是把原始数据吐给前端筛。
-/// 这样脱敏天然到位: 销售拿到的响应体里根本不出现 cost / profit 这两个
-/// key —— 不是 null, 是压根没组装进去。
+/// 仪表盘【由后端按角色组装】再返回。
+/// 顶部卡片固定 4 项: 营收 / 成本 / 利润 / 项目数量（钱仅财务与管理员）。
+/// 下方 blocks 仍按角色返回各业务概况。
 interface StatCardData {
   key: string;
   label: string;
@@ -44,146 +44,17 @@ export async function GET(req: Request) {
   const seeProduction = isAdmin || role === ROLES.PRODUCTION || role === ROLES.FINANCE;
   const seeResource = isAdmin || role === ROLES.RESOURCE || role === ROLES.FINANCE;
 
-  const [projects, products, profits] = await Promise.all([
+  const [projects, products, profits, projectCount] = await Promise.all([
     prisma.project.findMany({ select: { id: true, code: true, name: true, status: true } }),
     prisma.product.findMany({ select: { id: true, name: true, status: true, capacity: true } }),
     seeMoney ? allProjectProfits() : Promise.resolve(null),
+    prisma.project.count({ where: { deletedAt: null } }),
   ]);
 
   const cards: StatCardData[] = [];
   const blocks: Record<string, unknown> = {};
 
-  // ── 产品情况: 所有角色都看 ──────────────────────────────────
-  blocks.products = products.slice(0, 12);
-  cards.push({
-    key: "products",
-    label: "在售产品",
-    value: String(products.length),
-    hint: `${projects.filter((p) => p.status === "active").length} 个进行中项目`,
-    accent: "default",
-    icon: "package",
-  });
-
-  // ── 台子情况 ────────────────────────────────────────────────
-  if (seeSales) {
-    const mine = role === ROLES.SALES ? { ownerId: g.session.id } : {};
-    const desks = await prisma.desk.findMany({
-      where: mine,
-      include: {
-        owner: { select: { displayName: true } },
-        project: { select: { name: true } },
-        items: { select: { quantity: true, unitPrice: true } },
-      },
-      orderBy: { id: "desc" },
-    });
-
-    const gmv = desks.reduce(
-      (s, d) => s + d.items.reduce((x, i) => x + i.quantity * i.unitPrice, 0),
-      0,
-    );
-
-    cards.push({
-      key: "desks",
-      label: role === ROLES.SALES ? "我的台子" : "台子总数",
-      value: String(desks.length),
-      hint: `${desks.filter((d) => d.status === "active").length} 个合作中`,
-      accent: "primary",
-      icon: "store",
-    });
-    cards.push({
-      key: "gmv",
-      label: "台子卖价合计",
-      value: fmtMoneyShort(gmv),
-      accent: "success",
-      icon: "wallet",
-    });
-
-    blocks.desks = desks.slice(0, 8).map((d) => ({
-      id: d.id,
-      name: d.name,
-      owner: d.owner.displayName,
-      project: d.project.name,
-      itemCount: d.items.length,
-      amount: d.items.reduce((x, i) => x + i.quantity * i.unitPrice, 0),
-    }));
-  }
-
-  // ── 生产情况 ────────────────────────────────────────────────
-  if (seeProduction) {
-    const batches = await prisma.productionBatch.findMany({
-      where: { batchDate: { gte: since }, ...(role === ROLES.PRODUCTION ? { operatorId: g.session.id } : {}) },
-      include: { product: { select: { name: true } } },
-    });
-
-    const qty = batches.reduce((s, b) => s + b.quantity, 0);
-
-    cards.push({
-      key: "batches",
-      label: `近 ${days} 天产出批次`,
-      value: String(batches.length),
-      accent: "primary",
-      icon: "factory",
-    });
-    cards.push({
-      key: "output",
-      label: "产出总量",
-      value: qty.toLocaleString("en-US"),
-      accent: "success",
-      icon: "boxes",
-    });
-
-    // 按产品汇总产出, 取前 6
-    const byProduct = new Map<string, number>();
-    for (const b of batches) {
-      byProduct.set(b.product.name, (byProduct.get(b.product.name) ?? 0) + b.quantity);
-    }
-    blocks.output = [...byProduct.entries()]
-      .map(([label, value]) => ({ label, value }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 6);
-  }
-
-  // ── 资源情况 ────────────────────────────────────────────────
-  if (seeResource) {
-    const [cardCount, proxyCount, emailCount, sourceCount, monthPurchase] = await Promise.all([
-      prisma.cardResource.count({ where: { status: "available" } }),
-      prisma.proxyResource.count({ where: { status: "available" } }),
-      prisma.emailResource.count({ where: { status: "available" } }),
-      prisma.resourceSource.count({ where: { active: true } }),
-      prisma.purchase.aggregate({
-        where: { purchaseDate: { gte: since } },
-        _sum: { totalAmount: true },
-        _count: true,
-      }),
-    ]);
-
-    cards.push({
-      key: "resources",
-      label: "可用资源",
-      value: String(cardCount + proxyCount + emailCount),
-      hint: `邮箱 ${emailCount} · IP ${proxyCount} · 卡 ${cardCount}`,
-      accent: "default",
-      icon: "boxes",
-    });
-    cards.push({
-      key: "purchase",
-      label: `近 ${days} 天采购`,
-      value: fmtMoneyShort(monthPurchase._sum.totalAmount ?? 0),
-      hint: `${monthPurchase._count} 笔 · ${sourceCount} 个来源`,
-      accent: "warning",
-      icon: "cart",
-      positiveIsGood: false,
-    });
-
-    blocks.resources = {
-      email: emailCount,
-      proxy: proxyCount,
-      card: cardCount,
-      sources: sourceCount,
-    };
-  }
-
-  // ── 钱: 只有财务和管理员 ────────────────────────────────────
+  // ── 顶部 4 卡: 营收 / 成本 / 利润 / 项目数量 ──────────────
   if (seeMoney && profits) {
     const totals = [...profits.values()].reduce(
       (acc, p) => ({
@@ -195,18 +66,17 @@ export async function GET(req: Request) {
     );
     const margin = totals.revenue === 0 ? 0 : totals.profit / totals.revenue;
 
-    // 钱的卡片放最前面
-    cards.unshift(
+    cards.push(
       {
         key: "revenue",
-        label: "总营收",
+        label: "营收",
         value: fmtMoneyShort(totals.revenue),
         accent: "success",
         icon: "trending",
       },
       {
         key: "cost",
-        label: "总成本",
+        label: "成本",
         value: fmtMoneyShort(totals.cost),
         accent: "warning",
         icon: "receipt",
@@ -214,7 +84,7 @@ export async function GET(req: Request) {
       },
       {
         key: "profit",
-        label: "净利润",
+        label: "利润",
         value: fmtMoneyShort(totals.profit),
         hint: `利润率 ${(margin * 100).toFixed(1)}%`,
         accent: totals.profit >= 0 ? "primary" : "danger",
@@ -239,7 +109,79 @@ export async function GET(req: Request) {
       .sort((a, b) => b.profit - a.profit);
   }
 
+  cards.push({
+    key: "projects",
+    label: "项目数量",
+    value: String(projectCount),
+    hint: `${projects.filter((p) => p.status === "active").length} 个进行中`,
+    accent: "default",
+    icon: "package",
+  });
+
+  // ── 产品情况: 所有角色 ──────────────────────────────────
+  blocks.products = products.slice(0, 12);
+
+  // ── 台子情况 ────────────────────────────────────────────
+  if (seeSales) {
+    const mine = role === ROLES.SALES ? { ownerId: g.session.id } : {};
+    const desks = await prisma.desk.findMany({
+      where: mine,
+      include: {
+        owner: { select: { displayName: true } },
+        project: { select: { name: true } },
+        items: { select: { quantity: true, unitPrice: true } },
+      },
+      orderBy: { id: "desc" },
+    });
+
+    blocks.desks = desks.slice(0, 8).map((d) => ({
+      id: d.id,
+      name: d.name,
+      owner: d.owner.displayName,
+      project: d.project.name,
+      itemCount: d.items.length,
+      amount: d.items.reduce((x, i) => x + i.quantity * i.unitPrice, 0),
+    }));
+  }
+
+  // ── 生产情况 ────────────────────────────────────────────
+  if (seeProduction) {
+    const batches = await prisma.productionBatch.findMany({
+      where: {
+        batchDate: { gte: since },
+        ...(role === ROLES.PRODUCTION ? { operatorId: g.session.id } : {}),
+      },
+      include: { product: { select: { name: true } } },
+    });
+
+    const byProduct = new Map<string, number>();
+    for (const b of batches) {
+      byProduct.set(b.product.name, (byProduct.get(b.product.name) ?? 0) + b.quantity);
+    }
+    blocks.output = [...byProduct.entries()]
+      .map(([label, value]) => ({ label, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 6);
+  }
+
+  // ── 资源情况 ────────────────────────────────────────────
+  if (seeResource) {
+    const [cardCount, proxyCount, emailCount, sourceCount] = await Promise.all([
+      prisma.cardResource.count({ where: { status: "available" } }),
+      prisma.proxyResource.count({ where: { status: "available" } }),
+      prisma.emailResource.count({ where: { status: "available" } }),
+      prisma.resourceSource.count({ where: { active: true } }),
+    ]);
+
+    blocks.resources = {
+      email: emailCount,
+      proxy: proxyCount,
+      card: cardCount,
+      sources: sourceCount,
+    };
+  }
+
   return NextResponse.json({
-    item: { role, days, cards: cards.slice(0, 8), blocks },
+    item: { role, days, cards, blocks },
   });
 }

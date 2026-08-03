@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { badRequest, requireRole, requireRoleFresh } from "@/lib/guard";
-import { isOneOf, PARTNER_STATUS } from "@/lib/enums";
+import { DESK_API_KIND, isOneOf, PARTNER_STATUS } from "@/lib/enums";
 import { jsonItem, jsonItems } from "@/lib/mask";
 import { DESK_INCLUDE, resolveLines } from "@/lib/partner";
 import { ROLES } from "@/lib/rbac";
@@ -44,6 +44,8 @@ export async function POST(req: Request) {
     status: string;
     notes: string;
     baseUrl: string;
+    apiKind: string;
+    apiToken: string;
     items: { productName: string; unitPrice: number; note?: string }[];
   }>;
 
@@ -52,6 +54,9 @@ export async function POST(req: Request) {
   if (!body.projectId) return badRequest("请选择归属项目");
   if (body.status !== undefined && !isOneOf(PARTNER_STATUS, body.status)) {
     return badRequest("状态非法");
+  }
+  if (body.apiKind !== undefined && !isOneOf(DESK_API_KIND, body.apiKind)) {
+    return badRequest("API 类型非法");
   }
 
   const lines = await resolveLines(prisma, body.items, Number(body.projectId));
@@ -68,6 +73,8 @@ export async function POST(req: Request) {
       projectId: Number(body.projectId),
       contact: body.contact ?? "",
       baseUrl: body.baseUrl ?? "",
+      apiKind: body.apiKind ?? "none",
+      apiToken: body.apiToken ?? "",
       demand: body.demand ?? "",
       status: body.status ?? "active",
       notes: body.notes ?? "",

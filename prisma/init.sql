@@ -7,6 +7,7 @@ CREATE TABLE "User" (
     "role" TEXT NOT NULL,
     "active" BOOLEAN NOT NULL DEFAULT true,
     "note" TEXT NOT NULL DEFAULT '',
+    "deletedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL
 );
@@ -18,11 +19,49 @@ CREATE TABLE "Project" (
     "name" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'active',
     "ownerId" INTEGER,
+    "ownerName" TEXT NOT NULL DEFAULT '',
     "description" TEXT NOT NULL DEFAULT '',
+    "enableDemands" BOOLEAN NOT NULL DEFAULT false,
+    "enableBatches" BOOLEAN NOT NULL DEFAULT false,
     "startedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "deletedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     CONSTRAINT "Project_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "ProjectDemand" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "projectId" INTEGER NOT NULL,
+    "productId" INTEGER,
+    "productName" TEXT NOT NULL,
+    "spec" TEXT NOT NULL DEFAULT '',
+    "quantity" REAL,
+    "note" TEXT NOT NULL DEFAULT '',
+    "sortOrder" INTEGER NOT NULL DEFAULT 0,
+    "deletedAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "ProjectDemand_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "ProjectDemand_productId_fkey" FOREIGN KEY ("productId") REFERENCES "Product" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "FinanceEntry" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "projectId" INTEGER NOT NULL,
+    "kind" TEXT NOT NULL,
+    "amount" REAL NOT NULL DEFAULT 0,
+    "note" TEXT NOT NULL DEFAULT '',
+    "entryDate" TEXT NOT NULL,
+    "createdById" INTEGER,
+    "creatorName" TEXT NOT NULL DEFAULT '',
+    "deletedAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "FinanceEntry_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "FinanceEntry_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -34,6 +73,7 @@ CREATE TABLE "Product" (
     "projectId" INTEGER,
     "notes" TEXT NOT NULL DEFAULT '',
     "sortOrder" INTEGER NOT NULL DEFAULT 0,
+    "deletedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     CONSTRAINT "Product_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE SET NULL ON UPDATE CASCADE
@@ -46,9 +86,14 @@ CREATE TABLE "Desk" (
     "ownerId" INTEGER NOT NULL,
     "projectId" INTEGER NOT NULL,
     "contact" TEXT NOT NULL DEFAULT '',
+    "baseUrl" TEXT NOT NULL DEFAULT '',
+    "apiKind" TEXT NOT NULL DEFAULT 'none',
+    "apiToken" TEXT NOT NULL DEFAULT '',
+    "apiConfigJson" TEXT NOT NULL DEFAULT '{}',
     "demand" TEXT NOT NULL DEFAULT '',
     "status" TEXT NOT NULL DEFAULT 'active',
     "notes" TEXT NOT NULL DEFAULT '',
+    "deletedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     CONSTRAINT "Desk_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
@@ -60,6 +105,7 @@ CREATE TABLE "DeskItem" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "deskId" INTEGER NOT NULL,
     "productId" INTEGER NOT NULL,
+    "productName" TEXT NOT NULL DEFAULT '',
     "quantity" REAL NOT NULL DEFAULT 0,
     "unitPrice" REAL NOT NULL DEFAULT 0,
     "note" TEXT NOT NULL DEFAULT '',
@@ -76,9 +122,11 @@ CREATE TABLE "Supplier" (
     "ownerId" INTEGER,
     "projectId" INTEGER NOT NULL,
     "contact" TEXT NOT NULL DEFAULT '',
+    "baseUrl" TEXT NOT NULL DEFAULT '',
     "channel" TEXT NOT NULL DEFAULT '',
     "status" TEXT NOT NULL DEFAULT 'active',
     "notes" TEXT NOT NULL DEFAULT '',
+    "deletedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     CONSTRAINT "Supplier_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
@@ -90,6 +138,8 @@ CREATE TABLE "SupplierItem" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "supplierId" INTEGER NOT NULL,
     "productId" INTEGER NOT NULL,
+    "productName" TEXT NOT NULL DEFAULT '',
+    "apiKey" TEXT NOT NULL DEFAULT '',
     "quantity" REAL NOT NULL DEFAULT 0,
     "unitPrice" REAL NOT NULL DEFAULT 0,
     "note" TEXT NOT NULL DEFAULT '',
@@ -112,6 +162,7 @@ CREATE TABLE "ResourceSource" (
     "priceInfo" TEXT NOT NULL DEFAULT '',
     "active" BOOLEAN NOT NULL DEFAULT true,
     "notes" TEXT NOT NULL DEFAULT '',
+    "deletedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL
 );
@@ -130,6 +181,7 @@ CREATE TABLE "CardResource" (
     "projectId" INTEGER,
     "notes" TEXT NOT NULL DEFAULT '',
     "usedAt" DATETIME,
+    "deletedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     CONSTRAINT "CardResource_sourceId_fkey" FOREIGN KEY ("sourceId") REFERENCES "ResourceSource" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
@@ -152,6 +204,7 @@ CREATE TABLE "ProxyResource" (
     "status" TEXT NOT NULL DEFAULT 'available',
     "projectId" INTEGER,
     "notes" TEXT NOT NULL DEFAULT '',
+    "deletedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     CONSTRAINT "ProxyResource_sourceId_fkey" FOREIGN KEY ("sourceId") REFERENCES "ResourceSource" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
@@ -170,6 +223,7 @@ CREATE TABLE "EmailResource" (
     "status" TEXT NOT NULL DEFAULT 'available',
     "projectId" INTEGER,
     "notes" TEXT NOT NULL DEFAULT '',
+    "deletedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     CONSTRAINT "EmailResource_sourceId_fkey" FOREIGN KEY ("sourceId") REFERENCES "ResourceSource" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
@@ -193,6 +247,7 @@ CREATE TABLE "ResourceBusiness" (
     "name" TEXT NOT NULL,
     "active" BOOLEAN NOT NULL DEFAULT true,
     "sortOrder" INTEGER NOT NULL DEFAULT 0,
+    "deletedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL
 );
@@ -205,6 +260,7 @@ CREATE TABLE "ResourceAllocation" (
     "projectId" INTEGER,
     "note" TEXT NOT NULL DEFAULT '',
     "allocatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "deletedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "ResourceAllocation_assigneeId_fkey" FOREIGN KEY ("assigneeId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
     CONSTRAINT "ResourceAllocation_allocatorId_fkey" FOREIGN KEY ("allocatorId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
@@ -219,6 +275,7 @@ CREATE TABLE "ResourceAllocationItem" (
     "sourceId" INTEGER,
     "quantity" INTEGER NOT NULL DEFAULT 0,
     "amount" REAL NOT NULL DEFAULT 0,
+    "used" BOOLEAN NOT NULL DEFAULT false,
     "business" TEXT NOT NULL DEFAULT '',
     "emailId" INTEGER,
     "proxyId" INTEGER,
@@ -240,6 +297,7 @@ CREATE TABLE "ResourceRequest" (
     "note" TEXT NOT NULL DEFAULT '',
     "handledById" INTEGER,
     "handledAt" DATETIME,
+    "deletedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     CONSTRAINT "ResourceRequest_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
@@ -267,6 +325,7 @@ CREATE TABLE "Purchase" (
     "requestId" INTEGER,
     "kind" TEXT NOT NULL,
     "purchaserId" INTEGER NOT NULL,
+    "purchaserName" TEXT NOT NULL DEFAULT '',
     "sourceId" INTEGER,
     "content" TEXT NOT NULL,
     "detail" TEXT NOT NULL DEFAULT '',
@@ -274,6 +333,7 @@ CREATE TABLE "Purchase" (
     "totalAmount" REAL NOT NULL DEFAULT 0,
     "purchaseDate" TEXT NOT NULL,
     "notes" TEXT NOT NULL DEFAULT '',
+    "deletedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     CONSTRAINT "Purchase_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
@@ -289,9 +349,11 @@ CREATE TABLE "ProductionBatch" (
     "productId" INTEGER NOT NULL,
     "quantity" REAL NOT NULL DEFAULT 0,
     "batchDate" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'in_use',
     "operatorId" INTEGER NOT NULL,
     "note" TEXT NOT NULL DEFAULT '',
     "resultData" TEXT NOT NULL DEFAULT '',
+    "deletedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     CONSTRAINT "ProductionBatch_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
@@ -315,6 +377,27 @@ CREATE INDEX "Project_status_idx" ON "Project"("status");
 CREATE INDEX "Project_ownerId_idx" ON "Project"("ownerId");
 
 -- CreateIndex
+CREATE INDEX "ProjectDemand_projectId_idx" ON "ProjectDemand"("projectId");
+
+-- CreateIndex
+CREATE INDEX "ProjectDemand_productId_idx" ON "ProjectDemand"("productId");
+
+-- CreateIndex
+CREATE INDEX "ProjectDemand_sortOrder_idx" ON "ProjectDemand"("sortOrder");
+
+-- CreateIndex
+CREATE INDEX "FinanceEntry_projectId_idx" ON "FinanceEntry"("projectId");
+
+-- CreateIndex
+CREATE INDEX "FinanceEntry_kind_idx" ON "FinanceEntry"("kind");
+
+-- CreateIndex
+CREATE INDEX "FinanceEntry_entryDate_idx" ON "FinanceEntry"("entryDate");
+
+-- CreateIndex
+CREATE INDEX "FinanceEntry_createdById_idx" ON "FinanceEntry"("createdById");
+
+-- CreateIndex
 CREATE INDEX "Product_projectId_idx" ON "Product"("projectId");
 
 -- CreateIndex
@@ -328,6 +411,9 @@ CREATE INDEX "Desk_projectId_idx" ON "Desk"("projectId");
 
 -- CreateIndex
 CREATE INDEX "Desk_status_idx" ON "Desk"("status");
+
+-- CreateIndex
+CREATE INDEX "Desk_apiKind_idx" ON "Desk"("apiKind");
 
 -- CreateIndex
 CREATE INDEX "DeskItem_deskId_idx" ON "DeskItem"("deskId");

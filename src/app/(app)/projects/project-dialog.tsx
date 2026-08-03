@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -39,6 +40,8 @@ export default function ProjectDialog({
   const [status, setStatus] = useState<ProjectStatus>("active");
   const [ownerName, setOwnerName] = useState("");
   const [description, setDescription] = useState("");
+  const [enableDemands, setEnableDemands] = useState(false);
+  const [enableBatches, setEnableBatches] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // 每次打开都从 initial 重新灌一遍, 避免上一次编辑的残留
@@ -48,6 +51,8 @@ export default function ProjectDialog({
     setStatus(initial?.status ?? "active");
     setOwnerName(initial?.ownerName || initial?.owner?.displayName || "");
     setDescription(initial?.description ?? "");
+    setEnableDemands(Boolean(initial?.enableDemands));
+    setEnableBatches(Boolean(initial?.enableBatches));
   }, [open, initial]);
 
   async function save() {
@@ -58,6 +63,8 @@ export default function ProjectDialog({
       status,
       ownerName: ownerName.trim(),
       description,
+      enableDemands,
+      enableBatches,
     };
 
     setSaving(true);
@@ -111,7 +118,13 @@ export default function ProjectDialog({
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="负责人"><Input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} placeholder="填写负责人" /></Field>
+            <Field label="负责人">
+              <Input
+                value={ownerName}
+                onChange={(e) => setOwnerName(e.target.value)}
+                placeholder="填写负责人"
+              />
+            </Field>
           </div>
 
           <Field label="说明">
@@ -121,6 +134,37 @@ export default function ProjectDialog({
               onChange={(e) => setDescription(e.target.value)}
               placeholder="这个项目做什么、对接哪些产品"
             />
+          </Field>
+
+          <Field label="可选模块" hint="成本/收入与台子默认展示；以下模块按需开启">
+            <div className="flex flex-col gap-3 rounded-lg border border-border p-3">
+              <label className="flex items-start gap-2 text-sm cursor-pointer">
+                <Checkbox
+                  checked={enableDemands}
+                  onCheckedChange={(v) => setEnableDemands(v === true)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="font-medium">甲方需求清单</span>
+                  <span className="block text-xs text-muted-foreground">
+                    维护本项目甲方需要什么货
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm cursor-pointer">
+                <Checkbox
+                  checked={enableBatches}
+                  onCheckedChange={(v) => setEnableBatches(v === true)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="font-medium">产出批次</span>
+                  <span className="block text-xs text-muted-foreground">
+                    展示本项目的生产产出批次
+                  </span>
+                </span>
+              </label>
+            </div>
           </Field>
         </div>
 

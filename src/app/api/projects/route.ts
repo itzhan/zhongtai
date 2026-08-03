@@ -40,6 +40,8 @@ export async function POST(req: Request) {
     ownerId: number | null;
     ownerName: string;
     description: string;
+    enableDemands: boolean;
+    enableBatches: boolean;
   }>;
 
   const name = (body.name ?? "").trim();
@@ -58,6 +60,8 @@ export async function POST(req: Request) {
       ownerId: body.ownerId ?? null,
       ownerName: (body.ownerName ?? "").trim(),
       description: body.description ?? "",
+      enableDemands: Boolean(body.enableDemands),
+      enableBatches: Boolean(body.enableBatches),
     },
     include: INCLUDE,
   });

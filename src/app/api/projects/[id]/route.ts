@@ -39,6 +39,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     ownerId: number | null;
     ownerName: string;
     description: string;
+    enableDemands: boolean;
+    enableBatches: boolean;
   }>;
 
   const data: Record<string, unknown> = {};
@@ -63,6 +65,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (body.ownerId !== undefined) data.ownerId = body.ownerId ?? null;
   if (body.ownerName !== undefined) data.ownerName = body.ownerName.trim();
   if (body.description !== undefined) data.description = body.description;
+  if (body.enableDemands !== undefined) data.enableDemands = Boolean(body.enableDemands);
+  if (body.enableBatches !== undefined) data.enableBatches = Boolean(body.enableBatches);
 
   const item = await prisma.project.update({ where: { id }, data, include: INCLUDE });
   return NextResponse.json({ item });

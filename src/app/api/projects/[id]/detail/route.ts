@@ -6,8 +6,9 @@ import { ROLES } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 
-/// 项目详情页的四张明细表一次拉完。每张表按当前角色脱敏, 并且角色看不到
-/// 的整块直接不返回 —— 销售拿到的响应体里根本没有 purchases。
+/// 项目详情页一次拉完。
+/// 顺序语义: 成本/收入(必有) → 台子 → 甲方需求(可选) → 产出批次(可选)
+/// 未开启的可选模块返回 null, 前端不渲染。
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const g = await requireAuth();
   if (!g.ok) return g.res;
@@ -24,35 +25,64 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const role = g.session.role;
   const isAdmin = role === ROLES.ADMIN;
   const canSeeDesks = isAdmin || role === ROLES.SALES || role === ROLES.FINANCE;
-  const canSeeCost = isAdmin || role === ROLES.FINANCE || role === ROLES.RESOURCE;
+  const canSeeEntries =
+    isAdmin || role === ROLES.FINANCE || role === ROLES.RESOURCE || role === ROLES.SALES;
   const canSeeProduction = isAdmin || role === ROLES.PRODUCTION || role === ROLES.FINANCE;
+  const canSeeDemands =
+    isAdmin ||
+    role === ROLES.SALES ||
+    role === ROLES.FINANCE ||
+    role === ROLES.PRODUCTION ||
+    role === ROLES.RESOURCE;
 
-  const [desks, purchases, batches] = await Promise.all([
+  // 销售默认只看收入, 资源只看成本; 财务/管理员全看
+  let entryKind: string | undefined;
+  if (role === ROLES.SALES) entryKind = "income";
+  else if (role === ROLES.RESOURCE) entryKind = "cost";
+
+  const loadDemands = project.enableDemands && canSeeDemands;
+  const loadBatches = project.enableBatches && canSeeProduction;
+
+  const [demands, desks, entries, batches] = await Promise.all([
+    loadDemands
+      ? prisma.projectDemand.findMany({
+          where: { projectId: id, deletedAt: null },
+          include: { product: { select: { id: true, name: true } } },
+          orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+        })
+      : Promise.resolve(null),
+
     canSeeDesks
       ? prisma.desk.findMany({
           where: {
             projectId: id,
-            // 销售在这里同样只看自己的台子
+            deletedAt: null,
             ...(role === ROLES.SALES ? { ownerId: g.session.id } : {}),
           },
           include: {
             owner: { select: { id: true, displayName: true } },
-            items: { select: { quantity: true, unitPrice: true } },
+            items: { select: { quantity: true, unitPrice: true, productName: true } },
           },
           orderBy: { id: "desc" },
         })
       : Promise.resolve(null),
 
-    canSeeCost
-      ? prisma.purchase.findMany({
-          where: { projectId: id },
-          include: { purchaser: { select: { id: true, displayName: true } } },
-          orderBy: [{ purchaseDate: "desc" }, { id: "desc" }],
-          take: 50,
+    canSeeEntries
+      ? prisma.financeEntry.findMany({
+          where: {
+            projectId: id,
+            deletedAt: null,
+            ...(entryKind ? { kind: entryKind } : {}),
+          },
+          include: {
+            createdBy: { select: { id: true, displayName: true } },
+          },
+          orderBy: [{ entryDate: "desc" }, { id: "desc" }],
+          take: 100,
         })
       : Promise.resolve(null),
 
-    canSeeProduction
+    loadBatches
       ? prisma.productionBatch.findMany({
           where: { projectId: id },
           include: {
@@ -68,8 +98,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   return NextResponse.json({
     item: {
       project,
+      // 成本/收入必有块: 有权限时始终返回数组(可为空)
+      entries: entries ? maskMany("financeEntry", role, entries) : null,
       desks: desks ? maskMany("desk", role, desks) : null,
-      purchases: purchases ? maskMany("purchase", role, purchases) : null,
+      demands: demands ? maskMany("demand", role, demands) : null,
       batches,
     },
   });

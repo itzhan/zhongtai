@@ -8,7 +8,7 @@ import {
   requireRole,
   requireRoleFresh,
 } from "@/lib/guard";
-import { isOneOf, PARTNER_STATUS } from "@/lib/enums";
+import { DESK_API_KIND, isOneOf, PARTNER_STATUS } from "@/lib/enums";
 import { jsonItem } from "@/lib/mask";
 import { DESK_INCLUDE, resolveLines } from "@/lib/partner";
 import { ROLES } from "@/lib/rbac";
@@ -53,6 +53,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     status: string;
     notes: string;
     baseUrl: string;
+    apiKind: string;
+    apiToken: string;
     items: { productName: string; unitPrice: number; note?: string }[];
   }>;
 
@@ -65,6 +67,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (body.projectId !== undefined) data.projectId = Number(body.projectId);
   if (body.contact !== undefined) data.contact = body.contact;
   if (body.baseUrl !== undefined) data.baseUrl = body.baseUrl.trim();
+  if (body.apiKind !== undefined) {
+    if (!isOneOf(DESK_API_KIND, body.apiKind)) return badRequest("API 类型非法");
+    data.apiKind = body.apiKind;
+  }
+  if (body.apiToken !== undefined) data.apiToken = body.apiToken;
   if (body.demand !== undefined) data.demand = body.demand;
   if (body.notes !== undefined) data.notes = body.notes;
   if (body.status !== undefined) {

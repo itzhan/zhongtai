@@ -25,7 +25,14 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { useProjectOptions, useUserOptions } from "@/hooks/use-options";
 import { api, mutate } from "@/lib/api-client";
-import { PARTNER_STATUS, PARTNER_STATUS_LABEL, type PartnerStatus } from "@/lib/enums";
+import {
+  DESK_API_KIND,
+  DESK_API_KIND_LABEL,
+  PARTNER_STATUS,
+  PARTNER_STATUS_LABEL,
+  type DeskApiKind,
+  type PartnerStatus,
+} from "@/lib/enums";
 import { ROLES } from "@/lib/rbac";
 import type { Desk } from "./types";
 
@@ -47,6 +54,8 @@ export default function DeskDialog({
   const [projectId, setProjectId] = useState("");
   const [ownerId, setOwnerId] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
+  const [apiKind, setApiKind] = useState<DeskApiKind>("none");
+  const [apiToken, setApiToken] = useState("");
   const [demand, setDemand] = useState("");
   const [status, setStatus] = useState<PartnerStatus>("active");
   const [notes, setNotes] = useState("");
@@ -62,6 +71,12 @@ export default function DeskDialog({
     setProjectId(initial?.projectId ? String(initial.projectId) : "");
     setOwnerId(String(initial?.ownerId ?? session.id));
     setBaseUrl(initial?.baseUrl ?? "");
+    setApiKind(
+      (DESK_API_KIND.includes(initial?.apiKind as DeskApiKind)
+        ? initial?.apiKind
+        : "none") as DeskApiKind,
+    );
+    setApiToken(initial?.apiToken ?? "");
     setDemand(initial?.demand ?? "");
     setStatus(initial?.status ?? "active");
     setNotes(initial?.notes ?? "");
@@ -90,6 +105,8 @@ export default function DeskDialog({
       projectId: Number(projectId),
       ...(isSales ? {} : { ownerId: Number(ownerId) }),
       baseUrl: baseUrl.trim(),
+      apiKind,
+      apiToken,
       demand,
       status,
       notes,
@@ -184,7 +201,39 @@ export default function DeskDialog({
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="Base URL"><Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.example.com" /></Field>
+            <Field label="Base URL">
+              <Input
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                placeholder="https://api.example.com"
+              />
+            </Field>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Field label="API 类型" hint="按类型拉取消耗，协议待接入">
+              <Select value={apiKind} onValueChange={(v) => setApiKind(v as DeskApiKind)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {DESK_API_KIND.map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {DESK_API_KIND_LABEL[k]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="API Token" hint={apiKind === "none" ? "不对接时可不填" : undefined}>
+              <Input
+                type="password"
+                value={apiToken}
+                onChange={(e) => setApiToken(e.target.value)}
+                placeholder="接口凭证"
+                autoComplete="off"
+              />
+            </Field>
           </div>
 
           <Field label="需求说明" hint="文字描述，结构化的量价填在下方明细里">

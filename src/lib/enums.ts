@@ -78,12 +78,38 @@ export const RESOURCE_KIND_LABEL: Record<ResourceKind, string> = {
   card: "卡",
 };
 
-/// 采购记录额外允许 other
+/// 采购记录额外允许 other（旧资源采购链路仍用；项目利润已不读 Purchase）
 export const PURCHASE_KIND = [...RESOURCE_KIND, "other"] as const;
 export type PurchaseKind = (typeof PURCHASE_KIND)[number];
 export const PURCHASE_KIND_LABEL: Record<PurchaseKind, string> = {
   ...RESOURCE_KIND_LABEL,
   other: "其他",
+};
+
+/// 项目收支流水方向
+export const FINANCE_KIND = ["income", "cost"] as const;
+export type FinanceKind = (typeof FINANCE_KIND)[number];
+export const FINANCE_KIND_LABEL: Record<FinanceKind, string> = {
+  income: "收入",
+  cost: "成本",
+};
+export const FINANCE_KIND_VARIANT: Record<FinanceKind, BadgeVariant> = {
+  income: "success",
+  cost: "warning",
+};
+
+/// 台子对接的中转 API 分类
+export const DESK_API_KIND = ["none", "newapi", "sub2api"] as const;
+export type DeskApiKind = (typeof DESK_API_KIND)[number];
+export const DESK_API_KIND_LABEL: Record<DeskApiKind, string> = {
+  none: "不对接",
+  newapi: "NewAPI",
+  sub2api: "Sub2API",
+};
+export const DESK_API_KIND_VARIANT: Record<DeskApiKind, BadgeVariant> = {
+  none: "secondary",
+  newapi: "info",
+  sub2api: "purple",
 };
 
 export const REQUEST_STATUS = ["pending", "approved", "purchased", "rejected"] as const;

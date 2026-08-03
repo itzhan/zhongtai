@@ -2,12 +2,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  Boxes,
-  Factory,
   Package,
   Receipt,
-  ShoppingCart,
-  Store,
   TrendingUp,
   Wallet,
   type LucideIcon,
@@ -42,11 +38,7 @@ import { statusVariant } from "@/lib/product-status";
 /// 后端只回图标名, 组件映射在这里 —— API 层不该 import lucide。
 const ICONS: Record<string, LucideIcon> = {
   package: Package,
-  store: Store,
   wallet: Wallet,
-  factory: Factory,
-  boxes: Boxes,
-  cart: ShoppingCart,
   trending: TrendingUp,
   receipt: Receipt,
 };
@@ -117,7 +109,7 @@ export default function DashboardPage() {
     <>
       <PageHeader
         title={`${greeting()}，${session.displayName}`}
-        subtitle="产品、台子、生产与资源概览"
+        subtitle="营收、成本、利润与业务概览"
         actions={
           <Select value={days} onValueChange={setDays}>
             <SelectTrigger className="w-28">
@@ -133,6 +125,7 @@ export default function DashboardPage() {
       />
 
       <DataState loading={loading} error={error} empty={!data}>
+        {/* 顶部固定: 营收 / 成本 / 利润 / 项目数量 */}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-4">
           {data?.cards.map((c) => (
             <StatCard
@@ -152,9 +145,7 @@ export default function DashboardPage() {
             <Card className="lg:col-span-2">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">项目利润</CardTitle>
-                <CardDescription>
-                  收入来自台子卖价，成本来自采购与已进货的供货明细
-                </CardDescription>
+                <CardDescription>收入 / 成本均来自项目收支流水</CardDescription>
               </CardHeader>
               <CardContent className="pt-2">
                 <Table>
@@ -169,7 +160,22 @@ export default function DashboardPage() {
                   </TableHeader>
                   <TableBody>
                     {b.projectProfits.map((p) => (
-                      <TableRow key={p.id} className="cursor-pointer" onClick={() => setViewing({ title: "项目利润详情", fields: [{ label: "项目", value: p.name }, { label: "收入", value: fmtMoneyShort(p.revenue) }, { label: "成本", value: fmtMoneyShort(p.cost) }, { label: "利润", value: fmtMoneyShort(p.profit) }, { label: "利润率", value: `${(p.margin * 100).toFixed(1)}%` }] })}>
+                      <TableRow
+                        key={p.id}
+                        className="cursor-pointer"
+                        onClick={() =>
+                          setViewing({
+                            title: "项目利润详情",
+                            fields: [
+                              { label: "项目", value: p.name },
+                              { label: "收入", value: fmtMoneyShort(p.revenue) },
+                              { label: "成本", value: fmtMoneyShort(p.cost) },
+                              { label: "利润", value: fmtMoneyShort(p.profit) },
+                              { label: "利润率", value: `${(p.margin * 100).toFixed(1)}%` },
+                            ],
+                          })
+                        }
+                      >
                         <TableCell className="font-medium">
                           <Link
                             href={`/projects/${p.id}`}
@@ -223,9 +229,26 @@ export default function DashboardPage() {
                     </TableHeader>
                     <TableBody>
                       {b.desks.map((d) => (
-                        <TableRow key={d.id} className="cursor-pointer" onClick={() => setViewing({ title: "台子概览详情", fields: [{ label: "台子", value: d.name }, { label: "归属销售", value: d.owner }, { label: "项目", value: d.project }, { label: "需求项目", value: `${d.itemCount} 项` }, { label: "卖价", value: fmtMoneyShort(d.amount) }] })}>
+                        <TableRow
+                          key={d.id}
+                          className="cursor-pointer"
+                          onClick={() =>
+                            setViewing({
+                              title: "台子概览详情",
+                              fields: [
+                                { label: "台子", value: d.name },
+                                { label: "归属销售", value: d.owner },
+                                { label: "项目", value: d.project },
+                                { label: "需求项目", value: `${d.itemCount} 项` },
+                                { label: "卖价", value: fmtMoneyShort(d.amount) },
+                              ],
+                            })
+                          }
+                        >
                           <TableCell className="font-medium">{d.name}</TableCell>
-                          <TableCell className="text-muted-foreground text-xs">{d.owner}</TableCell>
+                          <TableCell className="text-muted-foreground text-xs">
+                            {d.owner}
+                          </TableCell>
                           <TableCell className="text-right tabular-nums">
                             {d.itemCount} 项
                           </TableCell>
@@ -269,7 +292,10 @@ export default function DashboardPage() {
               ) : (
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                   {b.products.map((p) => (
-                    <div key={p.id} className="rounded-xl border border-border p-3 space-y-2 min-w-0">
+                    <div
+                      key={p.id}
+                      className="rounded-xl border border-border p-3 space-y-2 min-w-0"
+                    >
                       <p className="text-sm font-medium truncate" title={p.name}>
                         {p.name}
                       </p>
@@ -297,7 +323,11 @@ export default function DashboardPage() {
                   { label: "可用邮箱", value: b.resources.email, href: "/resources/emails" },
                   { label: "可用代理 IP", value: b.resources.proxy, href: "/resources/proxies" },
                   { label: "可用卡", value: b.resources.card, href: "/resources/cards" },
-                  { label: "供应商渠道", value: b.resources.sources, href: "/resource-suppliers" },
+                  {
+                    label: "供应商渠道",
+                    value: b.resources.sources,
+                    href: "/resource-suppliers",
+                  },
                 ].map((r) => (
                   <Link
                     key={r.label}
@@ -307,7 +337,9 @@ export default function DashboardPage() {
                     <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/50">
                       {r.label}
                     </p>
-                    <p className="text-2xl font-bold tracking-tight tabular-nums mt-1">{r.value}</p>
+                    <p className="text-2xl font-bold tracking-tight tabular-nums mt-1">
+                      {r.value}
+                    </p>
                   </Link>
                 ))}
               </CardContent>
@@ -315,7 +347,12 @@ export default function DashboardPage() {
           )}
         </div>
       </DataState>
-      <RecordDetailDialog open={viewing !== null} onOpenChange={(value) => !value && setViewing(null)} title={viewing?.title ?? "详情"} fields={viewing?.fields ?? []} />
+      <RecordDetailDialog
+        open={viewing !== null}
+        onOpenChange={(value) => !value && setViewing(null)}
+        title={viewing?.title ?? "详情"}
+        fields={viewing?.fields ?? []}
+      />
     </>
   );
 }

@@ -1,4 +1,4 @@
-import type { PartnerStatus } from "@/lib/enums";
+import type { DeskApiKind, PartnerStatus } from "@/lib/enums";
 
 export interface PartnerItem {
   id: number;
@@ -19,6 +19,8 @@ export interface Desk {
   projectId: number;
   contact: string;
   baseUrl: string;
+  apiKind: DeskApiKind | string;
+  apiToken: string | null;
   demand: string;
   status: PartnerStatus;
   notes: string;

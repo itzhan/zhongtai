@@ -44,8 +44,23 @@ const MANIFEST = [
     ],
   },
   { table: "Purchase", columns: [["purchaserName", '"purchaserName" TEXT NOT NULL DEFAULT \'\'']] },
-  { table: "Project", columns: [["ownerName", '"ownerName" TEXT NOT NULL DEFAULT \'\'']] },
-  { table: "Desk", columns: [["baseUrl", '"baseUrl" TEXT NOT NULL DEFAULT \'\'']] },
+  {
+    table: "Project",
+    columns: [
+      ["ownerName", '"ownerName" TEXT NOT NULL DEFAULT \'\''],
+      ["enableDemands", '"enableDemands" BOOLEAN NOT NULL DEFAULT false'],
+      ["enableBatches", '"enableBatches" BOOLEAN NOT NULL DEFAULT false'],
+    ],
+  },
+  {
+    table: "Desk",
+    columns: [
+      ["baseUrl", '"baseUrl" TEXT NOT NULL DEFAULT \'\''],
+      ["apiKind", '"apiKind" TEXT NOT NULL DEFAULT \'none\''],
+      ["apiToken", '"apiToken" TEXT NOT NULL DEFAULT \'\''],
+      ["apiConfigJson", '"apiConfigJson" TEXT NOT NULL DEFAULT \'{}\''],
+    ],
+  },
   { table: "DeskItem", columns: [["productName", '"productName" TEXT NOT NULL DEFAULT \'\'']] },
   { table: "Supplier", columns: [["baseUrl", '"baseUrl" TEXT NOT NULL DEFAULT \'\'']] },
   { table: "SupplierItem", columns: [["productName", '"productName" TEXT NOT NULL DEFAULT \'\''], ["apiKey", '"apiKey" TEXT NOT NULL DEFAULT \'\'']] },

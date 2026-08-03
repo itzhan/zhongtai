@@ -51,6 +51,7 @@ model User {
   productionBatches   ProductionBatch[]
   receivedAllocations ResourceAllocation[] @relation("AllocationAssignee")
   createdAllocations  ResourceAllocation[] @relation("AllocationCreator")
+  financeEntries      FinanceEntry[]       @relation("EntryCreator")
 
   @@index([role])
 }
@@ -74,6 +75,10 @@ model Project {
   ownerId     Int?
   ownerName   String   @default("")
   description String   @default("")
+  /// 是否启用甲方需求清单模块（可选）
+  enableDemands Boolean @default(false)
+  /// 是否启用产出批次模块（可选）
+  enableBatches Boolean @default(false)
   startedAt   DateTime @default(now())
   deletedAt   DateTime?
   createdAt   DateTime @default(now())
@@ -90,9 +95,70 @@ model Project {
   proxies     ProxyResource[]
   emails      EmailResource[]
   allocations ResourceAllocation[]
+  demands     ProjectDemand[]
+  entries     FinanceEntry[]
 
   @@index([status])
   @@index([ownerId])
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 甲方需求清单 —— 项目要交付/匹配的货
+//   可关联 Product, 也可纯手填 productName; 不是流水, 不参与利润。
+// ═══════════════════════════════════════════════════════════════════
+
+model ProjectDemand {
+  id          Int      @id @default(autoincrement())
+  projectId   Int
+  productId   Int?
+  /// 货名 (手填或从产品回填)
+  productName String
+  /// 规格说明, 自由文本
+  spec        String   @default("")
+  quantity    Float?
+  note        String   @default("")
+  sortOrder   Int      @default(0)
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([productId])
+  @@index([sortOrder])
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 项目收支流水 —— 利润的唯一数据源
+//   revenue = Σ kind=income; cost = Σ kind=cost; profit = revenue − cost
+//   成本行同时是「采购/成本记录」页的数据源。
+// ═══════════════════════════════════════════════════════════════════
+
+model FinanceEntry {
+  id          Int      @id @default(autoincrement())
+  projectId   Int
+  /// income 收入 | cost 成本
+  kind        String
+  amount      Float    @default(0)
+  /// 本次花销/收入介绍
+  note        String   @default("")
+  /// 业务日 "YYYY-MM-DD"
+  entryDate   String
+  createdById Int?
+  creatorName String   @default("")
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy User?   @relation("EntryCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([kind])
+  @@index([entryDate])
+  @@index([createdById])
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -121,6 +187,7 @@ model Product {
   deskItems     DeskItem[]
   supplierItems SupplierItem[]
   batches       ProductionBatch[]
+  demands       ProjectDemand[]
 
   @@index([projectId])
   @@index([sortOrder])
@@ -142,6 +209,13 @@ model Desk {
   /// 联系方式 (TG / 微信 / 邮箱, 自由文本)
   contact   String   @default("")
   baseUrl   String   @default("")
+  /// 对接 API 分类: none 不对接 | newapi | sub2api
+  /// 消耗拉取按此分支; 具体协议后续接入, 本期占位
+  apiKind   String   @default("none")
+  /// API 凭证 —— 脱敏字段
+  apiToken  String   @default("")
+  /// 扩展配置 JSON, 后续 provider 专用字段
+  apiConfigJson String @default("{}")
   /// 货的需求情况 —— 自由文本, 多行。结构化的量价在 items 里
   demand    String   @default("")
   /// active 合作中 | paused 暂停 | closed 已终止
@@ -158,6 +232,7 @@ model Desk {
   @@index([ownerId])
   @@index([projectId])
   @@index([status])
+  @@index([apiKind])
 }
 
 /// 台子的一条货明细 = 产品 + 数量 + 卖价单价。

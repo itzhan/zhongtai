@@ -14,13 +14,16 @@ const { SALES, PRODUCTION, FINANCE, RESOURCE } = ROLES;
 /// admin 在 mask() 里短路放行, 所以这里不用写 admin。
 /// 未列出的字段 = 所有通过了页面级鉴权的角色都能看。
 const SENSITIVE = {
-  desk: {},
+  desk: { apiToken: [SALES, FINANCE] },
   deskItem: { unitPrice: [SALES, FINANCE] }, // 生产看不到卖价
   supplier: {},
   supplierItem: { unitPrice: [RESOURCE, FINANCE] }, // 销售看不到进价
   request: {},
   requestItem: { amount: [RESOURCE, FINANCE] },
   purchase: { totalAmount: [RESOURCE, FINANCE], detail: [RESOURCE, FINANCE] },
+  /// 成本流水金额: 资源/财务可见; 收入金额: 销售/财务可见 —— 见 handler 分流
+  financeEntry: { amount: [SALES, RESOURCE, FINANCE] },
+  demand: {},
   source: {
     priceInfo: [RESOURCE, FINANCE],
     emailPrice: [RESOURCE, FINANCE],
@@ -49,6 +52,7 @@ const NESTED: Partial<Record<Entity, Record<string, Entity>>> = {
   email: { source: "source" },
   purchase: { source: "source" },
   requestItem: { source: "source" },
+  financeEntry: { project: "project" },
 };
 
 /// 遮蔽 = 置 null 而不是 delete key。前端类型不变, 直接 `?? "-"` 渲染,

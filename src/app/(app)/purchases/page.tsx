@@ -6,7 +6,6 @@ import DataState from "@/components/DataState";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import PageHeader from "@/components/PageHeader";
 import StatCard from "@/components/StatCard";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -31,7 +30,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -42,31 +40,27 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useList } from "@/hooks/use-list";
-import { useSourceOptions } from "@/hooks/use-options";
+import { useProjectOptions } from "@/hooks/use-options";
 import { api, mutate } from "@/lib/api-client";
-import { PURCHASE_KIND, PURCHASE_KIND_LABEL, type PurchaseKind } from "@/lib/enums";
 import { fmtMoneyShort, todayStr } from "@/lib/format";
 import type { Purchase } from "./types";
 
-const NONE = "none";
-
-const KIND_VARIANT: Record<PurchaseKind, "info" | "purple" | "warning" | "secondary"> = {
-  email: "info",
-  proxy: "purple",
-  card: "warning",
-  other: "secondary",
-};
-
 export default function PurchasesPage() {
-  const [kind, setKind] = useState("all");
+  const [projectId, setProjectId] = useState("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
   const path = useMemo(
-    () => `/api/purchases?${new URLSearchParams({ kind, from, to }).toString()}`,
-    [kind, from, to],
+    () =>
+      `/api/purchases?${new URLSearchParams({
+        projectId,
+        from,
+        to,
+      }).toString()}`,
+    [projectId, from, to],
   );
   const { items, loading, error, reload } = useList<Purchase>(path);
+  const projects = useProjectOptions(true);
 
   const [editing, setEditing] = useState<Purchase | null>(null);
   const [open, setOpen] = useState(false);
@@ -86,7 +80,7 @@ export default function PurchasesPage() {
     <>
       <PageHeader
         title="采购记录"
-        subtitle="资源采购花费与采购人记录"
+        subtitle="项目成本流水（与项目详情同源）"
         actions={
           <Button
             className="rounded-full"
@@ -96,14 +90,14 @@ export default function PurchasesPage() {
             }}
           >
             <Plus size={14} />
-            新增采购
+            新增成本
           </Button>
         }
       />
 
       <div className="grid gap-3 sm:grid-cols-3 mb-4">
         <StatCard
-          label="采购总额"
+          label="成本总额"
           value={fmtMoneyShort(stats.total)}
           icon={Receipt}
           accent="warning"
@@ -119,15 +113,15 @@ export default function PurchasesPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
-        <Select value={kind} onValueChange={setKind}>
-          <SelectTrigger className="w-32">
-            <SelectValue />
+        <Select value={projectId} onValueChange={setProjectId}>
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="全部项目" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">全部类型</SelectItem>
-            {PURCHASE_KIND.map((k) => (
-              <SelectItem key={k} value={k}>
-                {PURCHASE_KIND_LABEL[k]}
+            <SelectItem value="all">全部项目</SelectItem>
+            {projects.map((p) => (
+              <SelectItem key={p.id} value={String(p.id)}>
+                {p.name}
               </SelectItem>
             ))}
           </SelectContent>
@@ -155,18 +149,17 @@ export default function PurchasesPage() {
             loading={loading}
             error={error}
             empty={items.length === 0}
-            emptyText="这个条件下还没有采购记录"
+            emptyText="这个条件下还没有成本记录"
             onRetry={reload}
           >
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>日期</TableHead>
-                  <TableHead>类型</TableHead>
-                  <TableHead>采购内容</TableHead>
-                  <TableHead>采购人</TableHead>
-                  <TableHead>来源</TableHead>
-                  <TableHead className="text-right">总金额</TableHead>
+                  <TableHead>项目</TableHead>
+                  <TableHead>说明</TableHead>
+                  <TableHead>录入人</TableHead>
+                  <TableHead className="text-right">金额</TableHead>
                   <TableHead className="w-10" />
                 </TableRow>
               </TableHeader>
@@ -174,22 +167,12 @@ export default function PurchasesPage() {
                 {items.map((p) => (
                   <TableRow key={p.id} className="cursor-pointer" onClick={() => setViewing(p)}>
                     <TableCell className="font-mono text-xs">{p.purchaseDate}</TableCell>
+                    <TableCell className="font-medium">{p.project?.name ?? "-"}</TableCell>
                     <TableCell>
-                      <Badge variant={KIND_VARIANT[p.kind]}>{PURCHASE_KIND_LABEL[p.kind]}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <p className="font-medium">{p.content}</p>
-                      {p.detail && (
-                        <p className="text-xs text-muted-foreground truncate max-w-[260px]">
-                          {p.detail}
-                        </p>
-                      )}
+                      <p className="truncate max-w-[320px]">{p.content || p.note || "-"}</p>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {p.purchaserName || p.purchaser.displayName}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-xs">
-                      {p.source?.name ?? "-"}
                     </TableCell>
                     <TableCell className="text-right tabular-nums font-medium">
                       {p.totalAmount === null ? (
@@ -231,18 +214,49 @@ export default function PurchasesPage() {
         </CardContent>
       </Card>
 
-      <PurchaseDialog open={open} onOpenChange={setOpen} initial={editing} onSaved={reload} />
-      <Dialog open={viewing !== null} onOpenChange={(v) => !v && setViewing(null)}><DialogContent className="max-w-xl"><DialogHeader><DialogTitle>采购详情</DialogTitle></DialogHeader>{viewing && <div className="space-y-4 text-sm"><div className="grid grid-cols-2 gap-4"><Info label="采购类型" value={PURCHASE_KIND_LABEL[viewing.kind]} /><Info label="采购人" value={viewing.purchaserName || viewing.purchaser.displayName} /><Info label="采购日期" value={viewing.purchaseDate} /><Info label="供应商" value={viewing.source?.name ?? "-"} /><Info label="总金额" value={viewing.totalAmount === null ? "-" : fmtMoneyShort(viewing.totalAmount)} /><Info label="采购内容" value={viewing.content} /></div><div><p className="text-xs text-muted-foreground mb-1">花费详情</p><p className="whitespace-pre-wrap leading-6">{viewing.detail || "-"}</p></div></div>}</DialogContent></Dialog>
+      <CostDialog open={open} onOpenChange={setOpen} initial={editing} onSaved={reload} />
+
+      <Dialog open={viewing !== null} onOpenChange={(v) => !v && setViewing(null)}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>成本详情</DialogTitle>
+          </DialogHeader>
+          {viewing && (
+            <div className="space-y-4 text-sm">
+              <div className="grid grid-cols-2 gap-4">
+                <Info label="项目" value={viewing.project?.name ?? "-"} />
+                <Info
+                  label="录入人"
+                  value={viewing.purchaserName || viewing.purchaser.displayName}
+                />
+                <Info label="日期" value={viewing.purchaseDate} />
+                <Info
+                  label="金额"
+                  value={
+                    viewing.totalAmount === null ? "-" : fmtMoneyShort(viewing.totalAmount)
+                  }
+                />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">说明</p>
+                <p className="whitespace-pre-wrap leading-6">
+                  {viewing.detail || viewing.content || "-"}
+                </p>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(v) => !v && setDeleting(null)}
-        title="删除这笔采购记录？"
-        description="删除后将进入回收站，项目成本会相应减少；恢复后重新计入。"
+        title="删除这笔成本记录？"
+        description="删除后项目成本会相应减少。"
         onConfirm={async () => {
           if (!deleting) return;
           const ok = await mutate(() => api.del(`/api/purchases/${deleting.id}`), {
-            success: "已移至回收站",
+            success: "已删除",
             error: "删除失败",
           });
           setDeleting(null);
@@ -254,10 +268,15 @@ export default function PurchasesPage() {
 }
 
 function Info({ label, value }: { label: string; value: string }) {
-  return <div><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 font-medium break-words">{value}</p></div>;
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 font-medium break-words">{value}</p>
+    </div>
+  );
 }
 
-function PurchaseDialog({
+function CostDialog({
   open,
   onOpenChange,
   initial,
@@ -268,42 +287,37 @@ function PurchaseDialog({
   initial: Purchase | null;
   onSaved: () => void;
 }) {
-  const [kind, setKind] = useState<PurchaseKind>("email");
-  const [content, setContent] = useState("");
-  const [detail, setDetail] = useState("");
+  const projects = useProjectOptions(open);
+  const [projectId, setProjectId] = useState("");
+  const [note, setNote] = useState("");
   const [totalAmount, setTotalAmount] = useState("");
   const [purchaseDate, setPurchaseDate] = useState("");
-  const [sourceId, setSourceId] = useState(NONE);
   const [purchaserName, setPurchaserName] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const sources = useSourceOptions(open);
-
   useEffect(() => {
     if (!open) return;
-    setKind(initial?.kind ?? "email");
-    setContent(initial?.content ?? "");
-    setDetail(initial?.detail ?? "");
+    setProjectId(initial?.projectId ? String(initial.projectId) : "");
+    setNote(initial?.detail || initial?.content || initial?.note || "");
     setTotalAmount(initial?.totalAmount != null ? String(initial.totalAmount) : "");
     setPurchaseDate(initial?.purchaseDate ?? todayStr());
-    setSourceId(initial?.sourceId ? String(initial.sourceId) : NONE);
     setPurchaserName(initial?.purchaserName || initial?.purchaser.displayName || "");
   }, [open, initial]);
 
   async function save() {
-    if (!purchaserName.trim()) return toast.warning("请填写采购人");
-    if (!content.trim()) return toast.warning("请填写采购内容");
+    if (!projectId) return toast.warning("请选择归属项目");
+    if (!note.trim()) return toast.warning("请填写花销说明");
     const amt = Number(totalAmount);
-    if (!Number.isFinite(amt) || amt < 0) return toast.warning("总金额非法");
+    if (!Number.isFinite(amt) || amt < 0) return toast.warning("金额非法");
 
     const payload = {
-      kind,
-      content: content.trim(),
-      detail,
+      projectId: Number(projectId),
+      note: note.trim(),
+      content: note.trim(),
+      detail: note.trim(),
       totalAmount: amt,
       purchaseDate,
-      sourceId: sourceId === NONE ? null : Number(sourceId),
-      purchaserName: purchaserName.trim(),
+      purchaserName: purchaserName.trim() || undefined,
     };
 
     setSaving(true);
@@ -328,27 +342,34 @@ function PurchaseDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{initial ? "编辑采购" : "新增采购"}</DialogTitle>
+          <DialogTitle>{initial ? "编辑成本" : "新增成本"}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
-          <Field label="采购类型">
-            <Tabs value={kind} onValueChange={(v) => setKind(v as PurchaseKind)}>
-              <TabsList className="w-full">
-                {PURCHASE_KIND.map((k) => (
-                  <TabsTrigger key={k} value={k} className="flex-1">
-                    {PURCHASE_KIND_LABEL[k]}
-                  </TabsTrigger>
+          <Field label="归属项目" required>
+            <Select value={projectId} onValueChange={setProjectId}>
+              <SelectTrigger>
+                <SelectValue placeholder="选择项目" />
+              </SelectTrigger>
+              <SelectContent>
+                {projects.map((p) => (
+                  <SelectItem key={p.id} value={String(p.id)}>
+                    {p.name}
+                  </SelectItem>
                 ))}
-              </TabsList>
-            </Tabs>
+              </SelectContent>
+            </Select>
           </Field>
 
           <div className="grid sm:grid-cols-2 gap-3">
-            <Field label="采购人" required>
-              <Input value={purchaserName} onChange={(e) => setPurchaserName(e.target.value)} placeholder="填写采购人姓名" />
+            <Field label="录入人">
+              <Input
+                value={purchaserName}
+                onChange={(e) => setPurchaserName(e.target.value)}
+                placeholder="默认当前用户"
+              />
             </Field>
-            <Field label="采购日期" required>
+            <Field label="日期" required>
               <Input
                 type="date"
                 value={purchaseDate}
@@ -357,52 +378,26 @@ function PurchaseDialog({
             </Field>
           </div>
 
-          <Field label="采购内容" required>
+          <Field label="金额" required>
             <Input
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="outlook 邮箱 200 个"
+              type="number"
+              min={0}
+              step="0.01"
+              inputMode="decimal"
+              className="tabular-nums"
+              value={totalAmount}
+              onChange={(e) => setTotalAmount(e.target.value)}
             />
           </Field>
 
-          <Field label="花费详情">
+          <Field label="花销说明" required>
             <Textarea
               rows={3}
-              value={detail}
-              onChange={(e) => setDetail(e.target.value)}
-              placeholder="单价、优惠、结算方式等"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="本次成本用途说明"
             />
           </Field>
-
-          <div className="grid sm:grid-cols-2 gap-3">
-            <Field label="总金额" required>
-              <Input
-                type="number"
-                min={0}
-                step="0.01"
-                inputMode="decimal"
-                className="tabular-nums"
-                value={totalAmount}
-                onChange={(e) => setTotalAmount(e.target.value)}
-              />
-            </Field>
-            <Field label="来源">
-              <Select value={sourceId} onValueChange={setSourceId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="未指定" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE}>未指定</SelectItem>
-                  {sources.map((s) => (
-                    <SelectItem key={s.id} value={String(s.id)}>
-                      {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          </div>
-
         </div>
 
         <DialogFooter>
