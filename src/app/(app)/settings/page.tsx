@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { KeyRound, Loader2, MoreHorizontal, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { KeyRound, Loader2, MoreHorizontal, Plus, RotateCcw, Sparkles, Trash2 } from "lucide-react";
 import DataState from "@/components/DataState";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import RecordDetailDialog from "@/components/RecordDetailDialog";
@@ -63,11 +63,12 @@ export default function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="设置" subtitle="用户与角色 · 我的账号" />
+      <PageHeader title="设置" subtitle="用户与角色 · AI 助手 · 我的账号" />
 
       <Tabs defaultValue={isAdmin ? "users" : "account"}>
         <TabsList>
           {isAdmin && <TabsTrigger value="users">用户与角色</TabsTrigger>}
+          {isAdmin && <TabsTrigger value="ai">AI 助手</TabsTrigger>}
           {isAdmin && <TabsTrigger value="trash">回收站</TabsTrigger>}
           <TabsTrigger value="account">我的账号</TabsTrigger>
         </TabsList>
@@ -77,6 +78,11 @@ export default function SettingsPage() {
             <UsersPanel />
           </TabsContent>
         )}
+        {isAdmin && (
+          <TabsContent value="ai" className="mt-4">
+            <AiAssistantPanel />
+          </TabsContent>
+        )}
         {isAdmin && <TabsContent value="trash" className="mt-4"><RecycleBin /></TabsContent>}
 
         <TabsContent value="account" className="mt-4">
@@ -84,6 +90,230 @@ export default function SettingsPage() {
         </TabsContent>
       </Tabs>
     </>
+  );
+}
+
+interface AiConfigItem {
+  channel: "custom" | "deepseek" | "openai";
+  baseUrl: string;
+  model: string;
+  enabled: boolean;
+  temperature: number;
+  apiKeySet: boolean;
+  source: string;
+  ready: boolean;
+}
+
+type AiPresets = Record<
+  "deepseek" | "openai",
+  { label: string; baseUrl: string; model: string; hint: string }
+>;
+
+function AiAssistantPanel() {
+  const [channel, setChannel] = useState<"custom" | "deepseek" | "openai">("custom");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [model, setModel] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [enabled, setEnabled] = useState(false);
+  const [temperature, setTemperature] = useState("0.2");
+  const [apiKeySet, setApiKeySet] = useState(false);
+  const [presets, setPresets] = useState<AiPresets | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const r = await api.get<{ item: AiConfigItem; presets: AiPresets }>("/api/assistant/config");
+      const c = r.item;
+      setChannel(c.channel);
+      setBaseUrl(c.baseUrl);
+      setModel(c.model);
+      setEnabled(c.enabled);
+      setTemperature(String(c.temperature ?? 0.2));
+      setApiKeySet(c.apiKeySet);
+      setApiKey("");
+      setPresets(r.presets);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "加载失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  function applyPreset(key: "deepseek" | "openai") {
+    const p = presets?.[key];
+    if (!p) return;
+    setChannel(key);
+    setBaseUrl(p.baseUrl);
+    setModel(p.model);
+  }
+
+  async function save() {
+    if (enabled && !baseUrl.trim()) return toast.warning("请填写 API Base URL");
+    if (enabled && !model.trim()) return toast.warning("请填写模型名");
+    if (enabled && !apiKeySet && !apiKey.trim()) return toast.warning("请填写 API Key");
+
+    setSaving(true);
+    try {
+      const ok = await mutate(
+        () =>
+          api.put("/api/assistant/config", {
+            channel,
+            baseUrl: baseUrl.trim(),
+            model: model.trim(),
+            apiKey: apiKey.trim() || undefined,
+            enabled,
+            temperature: Number(temperature) || 0.2,
+          }),
+        { success: "AI 配置已保存", error: "保存失败" },
+      );
+      if (ok) {
+        setApiKey("");
+        await load();
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <Card>
+        <CardContent className="py-12 flex justify-center text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Sparkles size={17} />
+          AI 助手接口
+        </CardTitle>
+        <CardDescription>
+          OpenAI 兼容协议。可选 DeepSeek / OpenAI 预设，也可填任意中转的 baseUrl 与模型名。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <Field label="启用">
+          <div className="flex items-center gap-2">
+            <Switch checked={enabled} onCheckedChange={setEnabled} />
+            <span className="text-sm text-muted-foreground">
+              {enabled ? "已启用" : "关闭时无法使用 AI 记账"}
+            </span>
+          </div>
+        </Field>
+
+        <Field label="渠道预设" hint="选择后自动填充地址与默认模型，仍可手改">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={channel === "deepseek" ? "default" : "outline"}
+              onClick={() => applyPreset("deepseek")}
+            >
+              DeepSeek
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={channel === "openai" ? "default" : "outline"}
+              onClick={() => applyPreset("openai")}
+            >
+              OpenAI
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={channel === "custom" ? "default" : "outline"}
+              onClick={() => setChannel("custom")}
+            >
+              自定义
+            </Button>
+          </div>
+          {channel !== "custom" && presets?.[channel] && (
+            <p className="text-xs text-muted-foreground mt-1">{presets[channel].hint}</p>
+          )}
+        </Field>
+
+        <Field label="API Base URL" required={enabled} hint="须含 /v1，如 https://api.deepseek.com/v1">
+          <Input
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder="https://api.deepseek.com/v1"
+          />
+        </Field>
+
+        <Field label="模型名" required={enabled} hint="控制台里的 model id，可自由填写">
+          <Input
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            placeholder="deepseek-chat / gpt-4o-mini"
+          />
+        </Field>
+
+        <Field
+          label="API Key"
+          required={enabled && !apiKeySet}
+          hint={apiKeySet ? "已保存密钥；留空表示不修改" : "密钥只存服务端，不会回显"}
+        >
+          <Input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder={apiKeySet ? "••••••••（留空不改）" : "sk-..."}
+            autoComplete="off"
+          />
+        </Field>
+
+        <Field label="Temperature" hint="0~2，记账建议 0.1~0.3">
+          <Input
+            type="number"
+            min={0}
+            max={2}
+            step="0.1"
+            className="w-32"
+            value={temperature}
+            onChange={(e) => setTemperature(e.target.value)}
+          />
+        </Field>
+
+        <div className="flex gap-2 pt-2">
+          <Button onClick={save} disabled={saving}>
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            保存配置
+          </Button>
+          {apiKeySet && (
+            <Button
+              variant="outline"
+              disabled={saving}
+              onClick={async () => {
+                setSaving(true);
+                try {
+                  const ok = await mutate(
+                    () => api.put("/api/assistant/config", { clearApiKey: true }),
+                    { success: "已清除密钥", error: "操作失败" },
+                  );
+                  if (ok) await load();
+                } finally {
+                  setSaving(false);
+                }
+              }}
+            >
+              清除密钥
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

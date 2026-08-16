@@ -11,6 +11,7 @@ import {
   Package,
   Settings,
   ShoppingCart,
+  Sparkles,
   Store,
   Truck,
   Wallet,
@@ -36,6 +37,7 @@ export const ICONS: Record<IconKey, LucideIcon> = {
   allocation: ClipboardList,
   production: Factory,
   purchase: ShoppingCart,
+  assistant: Sparkles,
   settings: Settings,
 };
 

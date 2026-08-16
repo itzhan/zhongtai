@@ -19,6 +19,7 @@ export type IconKey =
   | "allocation"
   | "production"
   | "purchase"
+  | "assistant"
   | "settings";
 
 export interface NavSubItem {
@@ -75,6 +76,12 @@ export const NAV: NavEntry[] = [
       },
       { href: "/desks", label: "台子管理", icon: "desk", roles: [SALES, FINANCE] },
       { href: "/suppliers", label: "供货方", icon: "supplier", roles: [RESOURCE, FINANCE] },
+      {
+        href: "/assistant",
+        label: "AI 助手",
+        icon: "assistant",
+        roles: [SALES, RESOURCE, FINANCE],
+      },
     ],
   },
   {

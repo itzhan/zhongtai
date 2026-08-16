@@ -242,6 +242,20 @@ CREATE TABLE "EmailProviderConfig" (
 );
 
 -- CreateTable
+CREATE TABLE "AiProviderConfig" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "key" TEXT NOT NULL DEFAULT 'default',
+    "channel" TEXT NOT NULL DEFAULT 'custom',
+    "baseUrl" TEXT NOT NULL DEFAULT '',
+    "model" TEXT NOT NULL DEFAULT '',
+    "apiKey" TEXT NOT NULL DEFAULT '',
+    "enabled" BOOLEAN NOT NULL DEFAULT false,
+    "temperature" REAL NOT NULL DEFAULT 0.2,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+
+-- CreateTable
 CREATE TABLE "ResourceBusiness" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "name" TEXT NOT NULL,
@@ -471,6 +485,9 @@ CREATE INDEX "EmailResource_status_idx" ON "EmailResource"("status");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "EmailProviderConfig_providerKey_key" ON "EmailProviderConfig"("providerKey");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "AiProviderConfig_key_key" ON "AiProviderConfig"("key");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "ResourceBusiness_name_key" ON "ResourceBusiness"("name");

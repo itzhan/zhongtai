@@ -474,6 +474,22 @@ model EmailProviderConfig {
   updatedAt   DateTime @updatedAt
 }
 
+/// AI 记账助手 —— OpenAI 兼容接口 (DeepSeek / GPT / 中转均可)。
+/// 单例 key="default"。密钥仅服务端使用, GET 接口脱敏。
+model AiProviderConfig {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique @default("default")
+  /// 渠道预设: custom | deepseek | openai
+  channel     String   @default("custom")
+  baseUrl     String   @default("")
+  model       String   @default("")
+  apiKey      String   @default("")
+  enabled     Boolean  @default(false)
+  temperature Float    @default(0.2)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 /// 卡资源的适用业务分类，由资源管理员在卡页面维护。
 model ResourceBusiness {
   id        Int      @id @default(autoincrement())
