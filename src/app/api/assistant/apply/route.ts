@@ -150,6 +150,8 @@ async function applyOne(
           name,
           owner: { connect: { id: session.id } },
           wechat: String(raw.wechat ?? "").trim(),
+          contact: String(raw.contact ?? "").trim(),
+          baseUrl: String(raw.baseUrl ?? "").trim(),
           goods: String(raw.goods ?? "").trim(),
           category: serializeSupplierCategories(categories),
         },

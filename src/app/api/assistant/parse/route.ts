@@ -204,13 +204,15 @@ function normalizeByAction(
         }
         const category = normalizeSupplierCategories(r.category ?? r.kind ?? r.business);
         if (!category.length) {
-          unresolved.push(`${name} 未识别业务分类（GPT / Claude / AWS）`);
+          unresolved.push(`${name} 未识别业务分类（GPT / Claude / AWS / 卡网）`);
           break;
         }
         out.push({
           name,
           category,
-          wechat: String(r.wechat ?? r.contact ?? "").trim(),
+          wechat: String(r.wechat ?? "").trim(),
+          contact: String(r.contact ?? r.telegram ?? r.tg ?? "").trim(),
+          baseUrl: String(r.baseUrl ?? r.website ?? r.url ?? "").trim(),
           goods: String(r.goods ?? "").trim(),
         });
         break;

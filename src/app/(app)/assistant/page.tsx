@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Eraser, Loader2, RotateCcw, Sparkles, Trash2 } from "lucide-react";
+import { Eraser, Loader2, Sparkles, Trash2 } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,12 +25,18 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useProjectOptions, useSupplierOptions } from "@/hooks/use-options";
-import { COST_SOURCE, COST_SOURCE_LABEL, type CostSource } from "@/lib/enums";
 import { api } from "@/lib/api-client";
 import {
+  COST_SOURCE,
+  COST_SOURCE_LABEL,
   FINANCE_KIND,
   FINANCE_KIND_LABEL,
+  PARTNER_STATUS_LABEL,
+  parseSupplierCategories,
+  SUPPLIER_CATEGORY_LABEL,
+  type CostSource,
   type FinanceKind,
+  type PartnerStatus,
 } from "@/lib/enums";
 import { todayStr } from "@/lib/format";
 
@@ -77,7 +83,6 @@ export default function AssistantPage() {
       setActions(r.items ?? []);
       if (r.items?.length) {
         setActionId((prev) => prev || r.items[0].id);
-        setMessage((prev) => (prev ? prev : r.items[0].template));
       }
     } catch {
       setActions([]);
@@ -92,27 +97,11 @@ export default function AssistantPage() {
       .catch(() => setCfg({ ready: true, model: "" }));
   }, [loadActions]);
 
-  // 切换操作时载入对应模板（覆盖输入框）
   function selectAction(id: string) {
     setActionId(id);
-    const a = actions.find((x) => x.id === id);
-    if (a) {
-      setMessage(a.template);
-      setItems([]);
-      setReply("");
-      setUnresolved([]);
-    }
-  }
-
-  function restoreTemplate() {
-    if (current) {
-      setMessage(current.template);
-      toast.message("已恢复默认模板");
-    }
-  }
-
-  function clearMessage() {
-    setMessage("");
+    setItems([]);
+    setReply("");
+    setUnresolved([]);
   }
 
   async function parse() {
@@ -177,7 +166,7 @@ export default function AssistantPage() {
     <>
       <PageHeader
         title="AI 助手"
-        subtitle="选择操作类型，用模板或自由文本描述，确认后执行"
+        subtitle="选择操作类型，按灰色提示填写或直接口述，确认后执行"
         actions={
           <Badge variant="secondary" className="font-normal">
             <Sparkles size={12} className="mr-1" />
@@ -201,7 +190,7 @@ export default function AssistantPage() {
       <Card className="mb-4">
         <CardHeader className="pb-2">
           <CardTitle className="text-base">1. 选择本次操作</CardTitle>
-          <CardDescription>切换操作会载入对应通用模板，可改可删后自己写</CardDescription>
+          <CardDescription>每种操作有对应的灰色填写提示</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <Select value={actionId} onValueChange={selectAction}>
@@ -226,14 +215,10 @@ export default function AssistantPage() {
         <CardHeader className="pb-2 flex-row items-start justify-between space-y-0 gap-3">
           <div>
             <CardTitle className="text-base">2. 填写内容</CardTitle>
-            <CardDescription>默认是通用模板；可「清空」后自由写，或「恢复模板」</CardDescription>
+            <CardDescription>灰色字是填写示例，不会当作正文提交</CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="outline" onClick={restoreTemplate}>
-              <RotateCcw size={14} />
-              恢复模板
-            </Button>
-            <Button type="button" size="sm" variant="outline" onClick={clearMessage}>
+            <Button type="button" size="sm" variant="outline" onClick={() => setMessage("")} disabled={!message}>
               <Eraser size={14} />
               清空
             </Button>
@@ -244,8 +229,8 @@ export default function AssistantPage() {
             rows={12}
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            placeholder="选择操作后会显示模板，或自行填写…"
-            className="font-mono text-sm"
+            placeholder={current?.template || "选择操作后按提示填写，或直接口述"}
+            className="text-sm placeholder:whitespace-pre-wrap"
           />
           <Button onClick={parse} disabled={parsing || !message.trim() || !actionId}>
             {parsing && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -535,7 +520,9 @@ function DraftTable({
                   )}
                 </TableCell>
                 <TableCell>
-                  <Badge variant="secondary">{String(d.status ?? "active")}</Badge>
+                  <Badge variant="secondary">
+                    {PARTNER_STATUS_LABEL[(d.status as PartnerStatus) ?? "active"] ?? "合作中"}
+                  </Badge>
                 </TableCell>
                 <TableCell>
                   <Button size="icon-sm" variant="ghost" onClick={() => onRemove(i)}>
@@ -555,8 +542,11 @@ function DraftTable({
       <TableHeader>
         <TableRow>
           <TableHead>名称</TableHead>
-          <TableHead>微信号</TableHead>
-          <TableHead>可以提供的货</TableHead>
+          <TableHead>分类</TableHead>
+          <TableHead>微信</TableHead>
+          <TableHead>Telegram</TableHead>
+          <TableHead>网站</TableHead>
+          <TableHead>货 / 产品</TableHead>
           <TableHead className="w-10" />
         </TableRow>
       </TableHeader>
@@ -567,7 +557,22 @@ function DraftTable({
               <Input value={String(d.name ?? "")} onChange={(e) => onChange(i, { name: e.target.value })} />
             </TableCell>
             <TableCell>
+              <Input
+                value={parseSupplierCategories(d.category)
+                  .map((c) => SUPPLIER_CATEGORY_LABEL[c])
+                  .join(" / ")}
+                onChange={(e) => onChange(i, { category: parseSupplierCategories(e.target.value.split(/[,，、/\s]+/)) })}
+                placeholder="GPT / Claude / AWS / 卡网"
+              />
+            </TableCell>
+            <TableCell>
               <Input value={String(d.wechat ?? "")} onChange={(e) => onChange(i, { wechat: e.target.value })} />
+            </TableCell>
+            <TableCell>
+              <Input value={String(d.contact ?? "")} onChange={(e) => onChange(i, { contact: e.target.value })} />
+            </TableCell>
+            <TableCell>
+              <Input value={String(d.baseUrl ?? "")} onChange={(e) => onChange(i, { baseUrl: e.target.value })} />
             </TableCell>
             <TableCell>
               <Input value={String(d.goods ?? "")} onChange={(e) => onChange(i, { goods: e.target.value })} />

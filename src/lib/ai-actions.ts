@@ -40,22 +40,18 @@ export const ACTION_META: Record<AssistantAction, ActionMeta> = {
     description: "把花费、回款记到指定项目流水",
     // 财务核心能力
     roles: [ROLES.FINANCE],
-    template: `请把下面内容整理成项目收支流水（可多条）：
-
-项目：【填写项目名称】
+    template: `项目：【项目名称】
 今天收入：【金额】，说明：【来源】
-今天成本：【金额】，类型：自产/供应商【供货方名】，说明：【用途】
+今天成本：【金额】，类型：自产 / 供应商【供应商名】，说明：【用途】
 
-（也可直接写：项目 XX 今天花了 300 给怪兽算力进货，回款 1000）`,
+也可直接写：项目 XX 今天花了 300 给巴总进货，回款 1000`,
   },
   create_project: {
     id: "create_project",
     label: "新建项目",
     description: "创建项目",
     roles: [ROLES.ADMIN],
-    template: `请创建项目：
-
-名称：【项目名称】
+    template: `名称：【项目名称】
 状态：进行中 / 暂停 / 已结束
 说明：【做什么】`,
   },
@@ -64,24 +60,22 @@ export const ACTION_META: Record<AssistantAction, ActionMeta> = {
     label: "新建需求",
     description: "下游需求，可挂一个或多个项目",
     roles: [ROLES.FINANCE],
-    template: `请创建需求：
-
-需求名称：【客户代号】
-归属销售：【随便填，不需要系统账号】
+    template: `需求名称：【客户代号】
+归属销售：【文本，不必是系统账号】
 所属项目：【项目名，多个用顿号分隔】
 状态：合作中 / 暂停 / 已终止`,
   },
   create_supplier: {
     id: "create_supplier",
     label: "新建供应商",
-    description: "名字、业务分类、微信号、可以提供的货",
+    description: "名字、业务分类、联系方式和可提供的货",
     roles: [ROLES.FINANCE],
-    template: `请创建供应商：
-
-名称：【供应商名】
-业务分类：【GPT / Claude / AWS，可多选】
-微信号：【可空】
-可以提供的货：【如 Claude / Outlook】`,
+    template: `名称：【供应商名】
+业务分类：【GPT / Claude / AWS / 卡网，可多选】
+微信号：【人脉供应商】
+Telegram：【卡网常用，可空】
+网站：【卡网链接，可空】
+可以提供的货 / 产品：【如 Claude 官key、Visa 虚拟卡】`,
   },
 };
 
@@ -169,10 +163,10 @@ ownerName 为归属销售，自由文本。
     case "create_supplier":
       return `${common}
 任务：解析要创建的供应商（可多条）。
-只需要名字、业务分类、微信号、可以提供的货。不要项目、联系人、货明细。
-category 为 gpt/claude/aws 数组，可多选。
+category 为 gpt/claude/aws/cardshop 数组，可多选。卡网对应 cardshop。
+wechat 为微信号；contact 为 Telegram；baseUrl 为网站。人脉供应商通常只有微信；卡网通常有网站和 TG。
 输出：
-{"reply":"","items":[{"name":"","category":["claude"],"wechat":"","goods":""}],"unresolved":[]}`;
+{"reply":"","items":[{"name":"","category":["claude"],"wechat":"","contact":"","baseUrl":"","goods":""}],"unresolved":[]}`;
   }
 }
 
