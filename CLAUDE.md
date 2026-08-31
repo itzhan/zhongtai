@@ -40,12 +40,12 @@
   npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script > prisma/init.sql
   ```
   `scripts/migrate.mjs` 会读它、自动补 `IF NOT EXISTS` 后逐条执行。给已有表**加列**走该文件里的 `MANIFEST`（SQLite 只支持 `ADD COLUMN`）。
-- 业务日历日（`periodDate` / `batchDate` / `purchaseDate`）存 `"YYYY-MM-DD"` **字符串**不是 DateTime——口径是 Asia/Shanghai 自然日，用 DateTime 会跨时区偏移一天。字典序即时间序，可以直接做范围比较。取今天用 `todayStr()`。
+- 业务日历日（`entryDate` / `periodDate` / `batchDate` / `purchaseDate`）存 `"YYYY-MM-DD"` **字符串**不是 DateTime——口径是 Asia/Shanghai 自然日，用 DateTime 会跨时区偏移一天。字典序即时间序，可以直接做范围比较。取今天用 `todayStr()`。
 - 「发生时刻」（`createdAt` / `handledAt` / `expiresAt`）才用 DateTime。
 
 ## 两个容易踩的业务语义
 
-1. **供货方明细的 `quantity` 是「已进货数量」，0 表示「仅报价、尚未进货」**。成本聚合只累加 `quantity > 0` 的行——否则录一个供应商报价，利润就凭空掉一截。
+1. **供货方明细的 `quantity` 是「已进货数量」，0 表示「仅报价、尚未进货」**。项目利润已经不读 `SupplierItem`，只读 `FinanceEntry`；不要把报价行算进成本，也不要把利润口径改回供货明细。
 2. **代理 IP 的 `protocol`(socks/http) 与 `ipType`(static/dynamic) 是两个正交维度**。动态 IP 同样分 socks/http，只是出口 IP 会变，不要合成一个复合枚举。
 
 ## 产品的 status / capacity 是自由文本
@@ -61,3 +61,18 @@ npm run db:reset      # 重置数据
 ```
 
 跑权限相关改动时，用五个 seed 账号逐个 curl 验证，别只看管理员。
+
+<!-- pi-init:start -->
+## 代码演进补充
+
+- **利润只认 `FinanceEntry`**：`revenue = Σ kind=income`，`cost = Σ kind=cost`。`/purchases` 页读的也是 `kind=cost` 的流水（字段映射成旧 Purchase 形状），不是 `Purchase` 表。台子 NewAPI/Sub2API 消耗仍是占位，不要计入利润。
+- **软删除**：删记录写 `deletedAt`，不要 `delete`。`src/lib/db.ts` 的 `prisma` 扩展会给一部分模型自动加 `deletedAt: null`；**`FinanceEntry` / `ProjectDemand` 不在这张表里**，查它们必须自己过滤。看回收站、恢复数据用 `rawPrisma`，普通查询不要绕过扩展。
+- **Edge 不能碰 Prisma**：`src/lib/session.ts` 只做 JWT；`src/lib/auth.ts` 才查库发 token。middleware / `nav.ts` 只能依赖 session 这一侧。
+- **台子和供货方不要合成一张多态表**：卖价是加、进价是减，可见角色也相反。共用逻辑放 `src/lib/partner.ts`。
+- **行级权限还要记**：生产看分配记录时 `assigneeId = 自己`，看产出批次时 `operatorId = 自己`。
+- **接码插件**：新 provider = `src/lib/mailproviders/<name>.ts` 末尾 `registerProvider(x)` + 在 `index.ts` 加一行 `import`。实现放代码，凭证放 `EmailProviderConfig`，不要改 schema / handler。
+- **AI 助手**：操作类型、角色、系统提示只改 `src/lib/ai-actions.ts`。配置走 `AiProviderConfig`（库优先，`AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL` 兜底），密钥不要回给前端。
+- **资源分配**：卡按金额扣余额，邮箱/代理按具体资源行；邮箱同一 `business` 不能重复分配。分配共用逻辑在 `src/lib/allocation.ts`。
+- **项目开关**：`enableDemands` / `enableBatches` 默认关，没开就不要假定项目一定有需求清单或产出批次。
+- **卡状态 ≠ 通用资源状态**：卡是 `available | invalid | used`，邮箱/代理才是 `available | in_use | used | invalid`。卡号/CVV 按需求在卡页明文展示，但 API 层 `amount` 仍要脱敏。
+<!-- pi-init:end -->

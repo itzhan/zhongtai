@@ -17,6 +17,11 @@ const SENSITIVE = {
   desk: { apiToken: [SALES, FINANCE] },
   deskItem: { unitPrice: [SALES, FINANCE] }, // 生产看不到卖价
   supplier: {},
+  supplierGood: {},
+  supplierComment: {},
+  supplierMonitor: { apiKey: [RESOURCE, FINANCE] },
+  sub2Site: { apiKey: [RESOURCE, FINANCE] },
+  sub2DispatchLog: {},
   supplierItem: { unitPrice: [RESOURCE, FINANCE] }, // 销售看不到进价
   request: {},
   requestItem: { amount: [RESOURCE, FINANCE] },
@@ -44,15 +49,17 @@ export type Entity = keyof typeof SENSITIVE;
 /// 嵌套关系: 父实体的某字段是子实体 (数组或对象) 时递归脱敏, 使
 /// Prisma include 出来的树不会漏网。
 const NESTED: Partial<Record<Entity, Record<string, Entity>>> = {
-  desk: { items: "deskItem", project: "project" },
-  supplier: { items: "supplierItem", project: "project" },
+  desk: { items: "deskItem" },
+  supplier: { goodsItems: "supplierGood", comments: "supplierComment", monitors: "supplierMonitor" },
+  sub2Site: { monitors: "supplierMonitor", logs: "sub2DispatchLog" },
+  supplierMonitor: { sub2Site: "sub2Site" },
+  financeEntry: { project: "project" },
   request: { items: "requestItem", purchases: "purchase" },
   card: { source: "source" },
   proxy: { source: "source" },
   email: { source: "source" },
   purchase: { source: "source" },
   requestItem: { source: "source" },
-  financeEntry: { project: "project" },
 };
 
 /// 遮蔽 = 置 null 而不是 delete key。前端类型不变, 直接 `?? "-"` 渲染,

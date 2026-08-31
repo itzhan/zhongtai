@@ -20,7 +20,9 @@ export type IconKey =
   | "production"
   | "purchase"
   | "assistant"
-  | "settings";
+  | "settings"
+  | "monitor"
+  | "schedule";
 
 export interface NavSubItem {
   href: string;
@@ -68,14 +70,7 @@ export const NAV: NavEntry[] = [
         icon: "project",
         roles: [SALES, PRODUCTION, FINANCE, RESOURCE],
       },
-      {
-        href: "/products",
-        label: "产品管理",
-        icon: "product",
-        roles: [SALES, PRODUCTION, FINANCE, RESOURCE],
-      },
-      { href: "/desks", label: "台子管理", icon: "desk", roles: [SALES, FINANCE] },
-      { href: "/suppliers", label: "供货方", icon: "supplier", roles: [RESOURCE, FINANCE] },
+      { href: "/desks", label: "需求管理", icon: "desk", roles: [SALES, FINANCE] },
       {
         href: "/assistant",
         label: "AI 助手",
@@ -85,45 +80,11 @@ export const NAV: NavEntry[] = [
     ],
   },
   {
-    group: "生产与资源",
+    group: "供应商管理",
     items: [
-      {
-        href: "/production/batches",
-        match: "/production/batches",
-        label: "生产管理",
-        icon: "production",
-        roles: [PRODUCTION, RESOURCE, FINANCE],
-        sub: [
-          { href: "/production/batches", label: "产出批次", roles: [PRODUCTION, FINANCE] },
-        ],
-      },
-      {
-        href: "/resources/cards",
-        match: "/resources",
-        label: "资源库",
-        icon: "resource",
-        // 整体放行给生产/财务，资源价格和账号密码由 API 层脱敏。
-        roles: [RESOURCE, FINANCE],
-        sub: [
-          { href: "/resources/cards", label: "卡", roles: [RESOURCE, FINANCE] },
-          { href: "/resources/proxies", label: "代理 IP" },
-          { href: "/resources/emails", label: "邮箱" },
-        ],
-      },
-      { href: "/production/resources", label: "批次资源", icon: "resource", roles: [PRODUCTION] },
-      {
-        href: "/resource-suppliers",
-        label: "资源供应商",
-        icon: "supplier",
-        roles: [RESOURCE, FINANCE],
-      },
-      {
-        href: "/resource-allocations",
-        label: "分配记录",
-        icon: "allocation",
-        roles: [RESOURCE, PRODUCTION, FINANCE],
-      },
-      { href: "/purchases", label: "采购记录", icon: "purchase", roles: [RESOURCE, FINANCE] },
+      { href: "/suppliers", label: "供应商", icon: "supplier", roles: [RESOURCE, FINANCE] },
+      { href: "/suppliers/monitor", label: "延迟监控", icon: "monitor", roles: [RESOURCE, FINANCE] },
+      { href: "/suppliers/schedule", label: "自动调度", icon: "schedule", roles: [RESOURCE, FINANCE] },
     ],
   },
   {

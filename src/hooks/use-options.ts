@@ -39,6 +39,17 @@ function useOptions<T>(path: string, enabled: boolean): T[] {
 export const useProjectOptions = (enabled = true) =>
   useOptions<ProjectOption>("/api/projects", enabled);
 
+export interface SupplierOption {
+  id: number;
+  name: string;
+  wechat: string;
+  goods: string;
+  category: string;
+}
+
+export const useSupplierOptions = (enabled = true) =>
+  useOptions<SupplierOption>("/api/suppliers", enabled);
+
 export const useProductOptions = (enabled = true) =>
   useOptions<ProductOption>("/api/products", enabled);
 

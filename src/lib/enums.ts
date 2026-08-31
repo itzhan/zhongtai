@@ -98,6 +98,175 @@ export const FINANCE_KIND_VARIANT: Record<FinanceKind, BadgeVariant> = {
   cost: "warning",
 };
 
+/// 成本来源
+export const COST_SOURCE = ["self", "supplier"] as const;
+export type CostSource = (typeof COST_SOURCE)[number];
+export const COST_SOURCE_LABEL: Record<CostSource, string> = {
+  self: "自产",
+  supplier: "供应商",
+};
+
+/// 供货方业务分类
+export const SUPPLIER_CATEGORY = ["gpt", "claude", "aws", "cardshop"] as const;
+export type SupplierCategory = (typeof SUPPLIER_CATEGORY)[number];
+export const SUPPLIER_CATEGORY_LABEL: Record<SupplierCategory, string> = {
+  gpt: "GPT",
+  claude: "Claude",
+  aws: "AWS",
+  cardshop: "卡网",
+};
+export const SUPPLIER_CATEGORY_VARIANT: Record<SupplierCategory, BadgeVariant> = {
+  gpt: "info",
+  claude: "purple",
+  aws: "warning",
+  cardshop: "success",
+};
+
+/// 从货名里认 GPT / Claude / AWS / 卡网关键词，认不出就回落中性灰
+export function goodsKeyword(name: string): SupplierCategory | null {
+  const s = name.toLowerCase();
+  if (s.includes("claude") || s.includes("anthropic")) return "claude";
+  if (s.includes("aws") || s.includes("amazon")) return "aws";
+  if (s.includes("gpt") || s.includes("openai") || s.includes("chatgpt")) return "gpt";
+  if (
+    s.includes("卡网") ||
+    s.includes("visa") ||
+    s.includes("mastercard") ||
+    s.includes("amex") ||
+    s.includes("虚拟卡") ||
+    s.includes("礼品卡")
+  ) {
+    return "cardshop";
+  }
+  return null;
+}
+
+export function goodsKeywordVariant(name: string): BadgeVariant {
+  const key = goodsKeyword(name);
+  return key ? SUPPLIER_CATEGORY_VARIANT[key] : "secondary";
+}
+
+export function normalizeRate(raw: string): string {
+  return raw.trim().replace(/\s*[~\-～—–]\s*/g, "-");
+}
+
+/// 倍率区间取下限：`0.1-0.2` → 0.1
+export function parseRateLowerBound(rate: string): number | null {
+  const n = normalizeRate(rate);
+  const m = n.match(/(\d+(?:\.\d+)?)/);
+  if (!m) return null;
+  const v = Number(m[1]);
+  return Number.isFinite(v) ? v : null;
+}
+
+export const MONITOR_STATUS = ["up", "slow", "down", "limited", "unknown"] as const;
+export type MonitorStatus = (typeof MONITOR_STATUS)[number];
+export const MONITOR_STATUS_LABEL: Record<MonitorStatus, string> = {
+  up: "正常",
+  slow: "偏慢",
+  down: "异常",
+  limited: "限流",
+  unknown: "未探测",
+};
+export const MONITOR_STATUS_VARIANT: Record<MonitorStatus, BadgeVariant> = {
+  up: "success",
+  slow: "warning",
+  down: "destructive",
+  limited: "info",
+  unknown: "secondary",
+};
+
+/// 渠道动态评级，由近几次探测结果推导，不落库
+export const MONITOR_GRADE = ["excellent", "unstable", "unavailable", "unknown"] as const;
+export type MonitorGrade = (typeof MONITOR_GRADE)[number];
+export const MONITOR_GRADE_LABEL: Record<MonitorGrade, string> = {
+  excellent: "优秀",
+  unstable: "不稳定",
+  unavailable: "不可用",
+  unknown: "未评级",
+};
+export const MONITOR_GRADE_VARIANT: Record<MonitorGrade, BadgeVariant> = {
+  excellent: "success",
+  unstable: "warning",
+  unavailable: "destructive",
+  unknown: "secondary",
+};
+
+/// 探测协议：GPT Completions / GPT Responses / Claude messages
+export const MONITOR_KIND = ["openai", "openai_response", "claude"] as const;
+export type MonitorKind = (typeof MONITOR_KIND)[number];
+export const MONITOR_KIND_LABEL: Record<MonitorKind, string> = {
+  openai: "GPT Completions",
+  openai_response: "GPT Responses",
+  claude: "Claude",
+};
+export const MONITOR_KIND_VARIANT: Record<MonitorKind, BadgeVariant> = {
+  openai: "info",
+  openai_response: "info",
+  claude: "purple",
+};
+export const MONITOR_KIND_PATH: Record<MonitorKind, string> = {
+  openai: "/v1/chat/completions",
+  openai_response: "/v1/responses",
+  claude: "/v1/messages",
+};
+export const MONITOR_DEFAULT_MODEL: Record<MonitorKind, string> = {
+  openai: "gpt-5.5",
+  openai_response: "gpt-5.5",
+  claude: "claude-sonnet-4-6",
+};
+
+export function defaultMonitorModel(kind: MonitorKind, model?: string): string {
+  const current = (model ?? "").trim();
+  if (!current) return MONITOR_DEFAULT_MODEL[kind];
+  return current;
+}
+
+export function monitorPlatform(kind: MonitorKind): "openai" | "anthropic" {
+  return kind === "claude" ? "anthropic" : "openai";
+}
+
+export const DISPATCH_ACTION = [
+  "pause",
+  "resume",
+  "set_priority",
+  "set_load_factor",
+  "set_concurrency",
+  "recover",
+  "reset",
+] as const;
+export type DispatchAction = (typeof DISPATCH_ACTION)[number];
+export const DISPATCH_ACTION_LABEL: Record<DispatchAction, string> = {
+  pause: "关闭调度",
+  resume: "打开调度",
+  set_priority: "改优先级",
+  set_load_factor: "改负载因子",
+  set_concurrency: "改并发",
+  recover: "恢复错误态",
+  reset: "重置并发",
+};
+
+export function splitGoodsNames(value: string): string[] {
+  return value
+    .split(/[,，、/|]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+export function parseSupplierCategories(v: unknown): SupplierCategory[] {
+  const raw = Array.isArray(v) ? v : typeof v === "string" ? v.split(/[,，\s]+/) : [];
+  const picked = new Set<SupplierCategory>();
+  for (const item of raw) {
+    const s = String(item).trim().toLowerCase();
+    if (isOneOf(SUPPLIER_CATEGORY, s)) picked.add(s);
+  }
+  return SUPPLIER_CATEGORY.filter((c) => picked.has(c));
+}
+
+export function serializeSupplierCategories(cats: readonly SupplierCategory[]): string {
+  return SUPPLIER_CATEGORY.filter((c) => cats.includes(c)).join(",");
+}
+
 /// 台子对接的中转 API 分类
 export const DESK_API_KIND = ["none", "newapi", "sub2api"] as const;
 export type DeskApiKind = (typeof DESK_API_KIND)[number];

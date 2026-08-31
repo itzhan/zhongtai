@@ -9,16 +9,11 @@ import {
   isAssistantAction,
   isFinanceKind,
   matchProject,
-  matchSource,
-  normalizeCardStatus,
+  matchSupplier,
   normalizeEnvelope,
-  normalizeIpType,
-  normalizeProtocol,
-  normalizeResourceStatus,
   normalizeStatusPartner,
   normalizeStatusProject,
-  parseKinds,
-  truthy,
+  normalizeSupplierCategories,
   type AssistantAction,
 } from "@/lib/ai-actions";
 import { todayStr } from "@/lib/format";
@@ -29,7 +24,7 @@ export const runtime = "nodejs";
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function POST(req: Request) {
-  const g = await requireRole(ROLES.SALES, ROLES.RESOURCE, ROLES.FINANCE);
+  const g = await requireRole(ROLES.FINANCE);
   if (!g.ok) return g.res;
 
   const body = (await req.json().catch(() => ({}))) as { message?: string; action?: string };
@@ -50,15 +45,15 @@ export async function POST(req: Request) {
     );
   }
 
-  const [projects, sources] = await Promise.all([
+  const [projects, suppliers] = await Promise.all([
     prisma.project.findMany({
       where: { deletedAt: null },
       select: { id: true, code: true, name: true },
       orderBy: { id: "desc" },
     }),
-    prisma.resourceSource.findMany({
+    prisma.supplier.findMany({
       where: { deletedAt: null },
-      select: { id: true, name: true },
+      select: { id: true, name: true, wechat: true, goods: true, category: true },
       orderBy: { id: "desc" },
     }),
   ]);
@@ -70,7 +65,7 @@ export async function POST(req: Request) {
       model: cfg.model,
       temperature: cfg.temperature,
       messages: [
-        { role: "system", content: buildSystemPrompt(action, projects, sources) },
+        { role: "system", content: buildSystemPrompt(action, projects, suppliers) },
         { role: "user", content: message },
       ],
     });
@@ -80,7 +75,7 @@ export async function POST(req: Request) {
       action,
       env.items,
       projects,
-      sources,
+      suppliers,
       [...env.unresolved],
     );
 
@@ -97,7 +92,7 @@ function normalizeByAction(
   action: AssistantAction,
   items: Record<string, unknown>[],
   projects: { id: number; code: string; name: string }[],
-  sources: { id: number; name: string }[],
+  suppliers: { id: number; name: string; wechat: string; goods: string; category: string }[],
   unresolved: string[],
 ): { items: Record<string, unknown>[]; unresolved: string[] } {
   const out: Record<string, unknown>[] = [];
@@ -121,6 +116,26 @@ function normalizeByAction(
         }
         let entryDate = typeof r.entryDate === "string" ? r.entryDate : todayStr();
         if (!DATE_RE.test(entryDate)) entryDate = todayStr();
+
+        let costSource = "self";
+        let supplierId: number | null = null;
+        let supplierName = "";
+        if (r.kind === "cost") {
+          const rawSource = String(r.costSource ?? "self").trim().toLowerCase();
+          const wantsSupplier =
+            rawSource === "supplier" || Boolean(r.supplierId) || Boolean(r.supplierName);
+          if (wantsSupplier) {
+            const supplier = matchSupplier(suppliers, r.supplierId, r.supplierName);
+            if (!supplier) {
+              unresolved.push(`无法匹配供货方: ${String(r.supplierName || r.supplierId)}`);
+              break;
+            }
+            costSource = "supplier";
+            supplierId = supplier.id;
+            supplierName = supplier.name;
+          }
+        }
+
         out.push({
           projectId: project.id,
           projectName: project.name,
@@ -128,6 +143,9 @@ function normalizeByAction(
           amount,
           entryDate,
           note: String(r.note ?? "").trim() || (r.kind === "cost" ? "成本" : "收入"),
+          costSource,
+          supplierId,
+          supplierName,
         });
         break;
       }
@@ -139,163 +157,61 @@ function normalizeByAction(
         }
         out.push({
           name,
-          ownerName: String(r.ownerName ?? "").trim(),
           status: normalizeStatusProject(r.status),
           description: String(r.description ?? "").trim(),
-          enableDemands: truthy(r.enableDemands),
-          enableBatches: truthy(r.enableBatches),
         });
         break;
       }
-      case "create_product": {
+      case "create_desk": {
         const name = String(r.name ?? "").trim();
         if (!name) {
-          unresolved.push("产品名称为空");
+          unresolved.push("需求名称为空");
           break;
         }
-        const project = matchProject(projects, r.projectId, r.projectName);
+        const names = Array.isArray(r.projectNames)
+          ? r.projectNames.map(String)
+          : typeof r.projectName === "string"
+            ? r.projectName.split(/[,，、/]/)
+            : [];
+        const ids = Array.isArray(r.projectIds) ? r.projectIds : r.projectId != null ? [r.projectId] : [];
+        const matched = new Map<number, string>();
+        for (const rawId of ids) {
+          const project = matchProject(projects, rawId);
+          if (project) matched.set(project.id, project.name);
+        }
+        for (const rawName of names) {
+          const project = matchProject(projects, null, rawName);
+          if (project) matched.set(project.id, project.name);
+        }
+        if (!matched.size) {
+          unresolved.push(`无法匹配项目: ${String(r.projectName || r.projectNames || r.projectId)}`);
+          break;
+        }
         out.push({
           name,
-          projectId: project?.id ?? null,
-          projectName: project?.name ?? "",
-          status: String(r.status ?? "").trim(),
-          capacity: String(r.capacity ?? "").trim(),
-          notes: String(r.notes ?? "").trim(),
+          ownerName: String(r.ownerName ?? r.owner ?? "").trim(),
+          projectIds: [...matched.keys()],
+          projectNames: [...matched.values()],
+          status: normalizeStatusPartner(r.status),
         });
         break;
       }
-      case "create_desk":
       case "create_supplier": {
         const name = String(r.name ?? "").trim();
         if (!name) {
-          unresolved.push(action === "create_desk" ? "台子名称为空" : "供货方名称为空");
+          unresolved.push("供应商名称为空");
           break;
         }
-        const project = matchProject(projects, r.projectId, r.projectName);
-        if (!project) {
-          unresolved.push(`无法匹配项目: ${String(r.projectName || r.projectId)}`);
-          break;
-        }
-        const rawItems = Array.isArray(r.items) ? r.items : [];
-        const lines = rawItems
-          .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
-          .map((it) => ({
-            productName: String(it.productName ?? "").trim(),
-            unitPrice: Number(it.unitPrice) || 0,
-            apiKey: String(it.apiKey ?? "").trim(),
-            note: String(it.note ?? "").trim(),
-          }))
-          .filter((it) => it.productName);
-
-        const base: Record<string, unknown> = {
-          name,
-          projectId: project.id,
-          projectName: project.name,
-          baseUrl: String(r.baseUrl ?? "").trim(),
-          status: normalizeStatusPartner(r.status),
-          notes: String(r.notes ?? "").trim(),
-          items: lines,
-        };
-        if (action === "create_desk") base.demand = String(r.demand ?? "").trim();
-        else base.channel = String(r.channel ?? "").trim();
-        out.push(base);
-        break;
-      }
-      case "create_source": {
-        const name = String(r.name ?? "").trim();
-        if (!name) {
-          unresolved.push("来源名称为空");
+        const category = normalizeSupplierCategories(r.category ?? r.kind ?? r.business);
+        if (!category.length) {
+          unresolved.push(`${name} 未识别业务分类（GPT / Claude / AWS）`);
           break;
         }
         out.push({
           name,
-          channel: String(r.channel ?? "").trim(),
-          kinds: parseKinds(r.kinds),
-          contact: String(r.contact ?? "").trim(),
-          emailPrice: Number(r.emailPrice) || 0,
-          proxyPrice: Number(r.proxyPrice) || 0,
-          cardPrice: Number(r.cardPrice) || 0,
-          priceInfo: String(r.priceInfo ?? "").trim(),
-          notes: String(r.notes ?? "").trim(),
-          active: r.active === undefined ? true : truthy(r.active),
-        });
-        break;
-      }
-      case "create_card": {
-        const cardNo = String(r.cardNo ?? "").trim();
-        if (!cardNo) {
-          unresolved.push("卡号为空");
-          break;
-        }
-        const project = matchProject(projects, r.projectId, r.projectName);
-        const source = matchSource(sources, r.sourceId, r.sourceName);
-        out.push({
-          cardNo,
-          cvv: String(r.cvv ?? "").trim(),
-          expiry: String(r.expiry ?? "").trim(),
-          holder: String(r.holder ?? "").trim(),
-          amount: Number(r.amount) || 0,
-          usage: String(r.usage ?? "").trim(),
-          status: normalizeCardStatus(r.status),
-          sourceId: source?.id ?? null,
-          sourceName: source?.name ?? "",
-          projectId: project?.id ?? null,
-          projectName: project?.name ?? "",
-          notes: String(r.notes ?? "").trim(),
-        });
-        break;
-      }
-      case "create_proxy": {
-        const host = String(r.host ?? "").trim();
-        const port = Number(r.port);
-        if (!host) {
-          unresolved.push("代理地址为空");
-          break;
-        }
-        if (!Number.isInteger(port) || port < 1 || port > 65535) {
-          unresolved.push(`端口非法: ${String(r.port)}`);
-          break;
-        }
-        const project = matchProject(projects, r.projectId, r.projectName);
-        const source = matchSource(sources, r.sourceId, r.sourceName);
-        const ipType = normalizeIpType(r.ipType);
-        out.push({
-          protocol: normalizeProtocol(r.protocol),
-          ipType,
-          host,
-          port,
-          username: String(r.username ?? "").trim(),
-          password: String(r.password ?? "").trim(),
-          region: String(r.region ?? "").trim(),
-          rotateUrl: ipType === "dynamic" ? String(r.rotateUrl ?? "").trim() : "",
-          status: normalizeResourceStatus(r.status),
-          sourceId: source?.id ?? null,
-          sourceName: source?.name ?? "",
-          projectId: project?.id ?? null,
-          projectName: project?.name ?? "",
-          notes: String(r.notes ?? "").trim(),
-        });
-        break;
-      }
-      case "create_email": {
-        const address = String(r.address ?? "").trim();
-        if (!address) {
-          unresolved.push("邮箱地址为空");
-          break;
-        }
-        const project = matchProject(projects, r.projectId, r.projectName);
-        const source = matchSource(sources, r.sourceId, r.sourceName);
-        out.push({
-          address,
-          password: String(r.password ?? "").trim(),
-          providerKey: String(r.providerKey ?? "mock").trim() || "mock",
-          usage: String(r.usage ?? "").trim(),
-          status: normalizeResourceStatus(r.status),
-          sourceId: source?.id ?? null,
-          sourceName: source?.name ?? "",
-          projectId: project?.id ?? null,
-          projectName: project?.name ?? "",
-          notes: String(r.notes ?? "").trim(),
+          category,
+          wechat: String(r.wechat ?? r.contact ?? "").trim(),
+          goods: String(r.goods ?? "").trim(),
         });
         break;
       }

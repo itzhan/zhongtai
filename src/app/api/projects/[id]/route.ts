@@ -6,9 +6,15 @@ import { isOneOf, PROJECT_STATUS } from "@/lib/enums";
 export const runtime = "nodejs";
 
 const INCLUDE = {
-  owner: { select: { id: true, displayName: true } },
-  _count: { select: { desks: true, products: true, purchases: true } },
+  _count: { select: { deskLinks: true, products: true, purchases: true } },
 } as const;
+
+function shape(item: { _count: { deskLinks: number; products: number; purchases: number } }) {
+  return {
+    ...item,
+    _count: { desks: item._count.deskLinks, products: item._count.products, purchases: item._count.purchases },
+  };
+}
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const g = await requireAuth();
@@ -19,7 +25,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   const item = await prisma.project.findUnique({ where: { id }, include: INCLUDE });
   if (!item) return notFound("项目不存在");
-  return NextResponse.json({ item });
+  return NextResponse.json({ item: shape(item) });
 }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -36,8 +42,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     code: string;
     name: string;
     status: string;
-    ownerId: number | null;
-    ownerName: string;
     description: string;
     enableDemands: boolean;
     enableBatches: boolean;
@@ -62,14 +66,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     if (!isOneOf(PROJECT_STATUS, body.status)) return badRequest("状态非法");
     data.status = body.status;
   }
-  if (body.ownerId !== undefined) data.ownerId = body.ownerId ?? null;
-  if (body.ownerName !== undefined) data.ownerName = body.ownerName.trim();
   if (body.description !== undefined) data.description = body.description;
   if (body.enableDemands !== undefined) data.enableDemands = Boolean(body.enableDemands);
   if (body.enableBatches !== undefined) data.enableBatches = Boolean(body.enableBatches);
 
   const item = await prisma.project.update({ where: { id }, data, include: INCLUDE });
-  return NextResponse.json({ item });
+  return NextResponse.json({ item: shape(item) });
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -81,16 +83,14 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
 
   const existing = await prisma.project.findUnique({
     where: { id },
-    include: { _count: { select: { desks: true, purchases: true, suppliers: true } } },
+    include: { _count: { select: { deskLinks: true, purchases: true } } },
   });
   if (!existing) return notFound("项目不存在");
 
-  // 台子/供货方/采购是 Cascade, 删项目会连带删掉一大片业务数据。
-  // 有关联时一律拒绝, 让用户先处理干净或改成「已结束」。
   const c = existing._count;
-  if (c.desks || c.purchases || c.suppliers) {
+  if (c.deskLinks || c.purchases) {
     return badRequest(
-      `该项目下还有 ${c.desks} 个台子 / ${c.suppliers} 个供货方 / ${c.purchases} 笔采购，无法删除。可改为「已结束」`,
+      `该项目下还有 ${c.deskLinks} 个台子 / ${c.purchases} 笔采购，无法删除。可改为「已结束」`,
     );
   }
 

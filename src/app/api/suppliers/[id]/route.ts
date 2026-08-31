@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { parseSupplierCategories, serializeSupplierCategories } from "@/lib/enums";
 import { badRequest, notFound, parseId, requireRole, requireRoleFresh } from "@/lib/guard";
-import { isOneOf, PARTNER_STATUS } from "@/lib/enums";
 import { jsonItem } from "@/lib/mask";
-import { SUPPLIER_INCLUDE, resolveLines } from "@/lib/partner";
+import { SUPPLIER_DETAIL_INCLUDE, SUPPLIER_INCLUDE } from "@/lib/partner";
 import { ROLES } from "@/lib/rbac";
 
 export const runtime = "nodejs";
@@ -15,9 +15,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const id = parseId((await ctx.params).id);
   if (!id) return badRequest("id 非法");
 
-  const item = await prisma.supplier.findUnique({ where: { id }, include: SUPPLIER_INCLUDE });
-  if (!item) return notFound("供货方不存在");
-  return jsonItem("supplier", g.session.role, item);
+  const item = await prisma.supplier.findUnique({ where: { id }, include: SUPPLIER_DETAIL_INCLUDE });
+  if (!item) return notFound("供应商不存在");
+
+  const spent = item.entries.reduce((sum, entry) => sum + (entry.amount ?? 0), 0);
+  return jsonItem("supplier", g.session.role, { ...item, spent });
 }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -28,47 +30,34 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (!id) return badRequest("id 非法");
 
   const existing = await prisma.supplier.findUnique({ where: { id } });
-  if (!existing) return notFound("供货方不存在");
+  if (!existing) return notFound("供应商不存在");
 
   const body = (await req.json().catch(() => ({}))) as Partial<{
     name: string;
-    projectId: number;
-    ownerId: number | null;
+    wechat: string;
     contact: string;
-    channel: string;
-    status: string;
-    notes: string;
     baseUrl: string;
-    items: { productName: string; apiKey?: string; unitPrice: number; note?: string }[];
+    goods: string;
+    category: string | string[];
   }>;
 
   const data: Record<string, unknown> = {};
   if (body.name !== undefined) {
     const v = body.name.trim();
-    if (!v) return badRequest("供货方名称不能为空");
+    if (!v) return badRequest("供应商名称不能为空");
     data.name = v;
   }
-  if (body.projectId !== undefined) data.projectId = Number(body.projectId);
-  if (body.ownerId !== undefined) data.ownerId = body.ownerId ?? null;
-  if (body.contact !== undefined) data.contact = body.contact;
-  if (body.channel !== undefined) data.channel = body.channel;
-  if (body.notes !== undefined) data.notes = body.notes;
+  if (body.wechat !== undefined) data.wechat = body.wechat.trim();
+  if (body.contact !== undefined) data.contact = body.contact.trim();
   if (body.baseUrl !== undefined) data.baseUrl = body.baseUrl.trim();
-  if (body.status !== undefined) {
-    if (!isOneOf(PARTNER_STATUS, body.status)) return badRequest("状态非法");
-    data.status = body.status;
+  if (body.goods !== undefined) data.goods = body.goods.trim();
+  if (body.category !== undefined) {
+    const categories = parseSupplierCategories(body.category);
+    if (!categories.length) return badRequest("请选择业务分类");
+    data.category = serializeSupplierCategories(categories);
   }
 
-  const item = await prisma.$transaction(async (tx) => {
-    const lines = body.items === undefined ? null : await resolveLines(tx, body.items, Number(body.projectId ?? existing.projectId));
-    if (typeof lines === "string") throw new Error(lines);
-    if (lines !== null) {
-      await tx.supplierItem.deleteMany({ where: { supplierId: id } });
-      data.items = { create: lines };
-    }
-    return tx.supplier.update({ where: { id }, data, include: SUPPLIER_INCLUDE });
-  });
-
+  const item = await prisma.supplier.update({ where: { id }, data, include: SUPPLIER_INCLUDE });
   return jsonItem("supplier", g.session.role, item);
 }
 
@@ -80,7 +69,7 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
   if (!id) return badRequest("id 非法");
 
   const existing = await prisma.supplier.findUnique({ where: { id } });
-  if (!existing) return notFound("供货方不存在");
+  if (!existing) return notFound("供应商不存在");
 
   await prisma.supplier.update({ where: { id }, data: { deletedAt: new Date() } });
   return NextResponse.json({ ok: true });

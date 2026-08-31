@@ -28,6 +28,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; d
     productId: number | null;
     productName: string;
     spec: string;
+    sellPrice: number;
     quantity: number | null;
     note: string;
     sortOrder: number;
@@ -55,6 +56,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; d
     data.productName = v;
   }
   if (body.spec !== undefined) data.spec = body.spec;
+  if (body.sellPrice !== undefined) {
+    const p = Number(body.sellPrice);
+    if (!Number.isFinite(p) || p < 0) return badRequest("卖价非法");
+    data.sellPrice = p;
+  }
   if (body.note !== undefined) data.note = body.note;
   if (body.sortOrder !== undefined) {
     const n = Number(body.sortOrder);

@@ -18,16 +18,13 @@ CREATE TABLE "Project" (
     "code" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'active',
-    "ownerId" INTEGER,
-    "ownerName" TEXT NOT NULL DEFAULT '',
     "description" TEXT NOT NULL DEFAULT '',
     "enableDemands" BOOLEAN NOT NULL DEFAULT false,
     "enableBatches" BOOLEAN NOT NULL DEFAULT false,
     "startedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "deletedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
-    CONSTRAINT "Project_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+    "updatedAt" DATETIME NOT NULL
 );
 
 -- CreateTable
@@ -36,6 +33,7 @@ CREATE TABLE "ProjectDemand" (
     "projectId" INTEGER NOT NULL,
     "productId" INTEGER,
     "productName" TEXT NOT NULL,
+    "sellPrice" REAL NOT NULL DEFAULT 0,
     "spec" TEXT NOT NULL DEFAULT '',
     "quantity" REAL,
     "note" TEXT NOT NULL DEFAULT '',
@@ -55,12 +53,15 @@ CREATE TABLE "FinanceEntry" (
     "amount" REAL NOT NULL DEFAULT 0,
     "note" TEXT NOT NULL DEFAULT '',
     "entryDate" TEXT NOT NULL,
+    "costSource" TEXT NOT NULL DEFAULT 'self',
+    "supplierId" INTEGER,
     "createdById" INTEGER,
     "creatorName" TEXT NOT NULL DEFAULT '',
     "deletedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     CONSTRAINT "FinanceEntry_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "FinanceEntry_supplierId_fkey" FOREIGN KEY ("supplierId") REFERENCES "Supplier" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "FinanceEntry_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
@@ -84,7 +85,7 @@ CREATE TABLE "Desk" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "name" TEXT NOT NULL,
     "ownerId" INTEGER NOT NULL,
-    "projectId" INTEGER NOT NULL,
+    "ownerName" TEXT NOT NULL DEFAULT '',
     "contact" TEXT NOT NULL DEFAULT '',
     "baseUrl" TEXT NOT NULL DEFAULT '',
     "apiKind" TEXT NOT NULL DEFAULT 'none',
@@ -96,8 +97,18 @@ CREATE TABLE "Desk" (
     "deletedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
-    CONSTRAINT "Desk_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT "Desk_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    CONSTRAINT "Desk_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "DeskProject" (
+    "deskId" INTEGER NOT NULL,
+    "projectId" INTEGER NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY ("deskId", "projectId"),
+    CONSTRAINT "DeskProject_deskId_fkey" FOREIGN KEY ("deskId") REFERENCES "Desk" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "DeskProject_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -120,7 +131,9 @@ CREATE TABLE "Supplier" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "name" TEXT NOT NULL,
     "ownerId" INTEGER,
-    "projectId" INTEGER NOT NULL,
+    "wechat" TEXT NOT NULL DEFAULT '',
+    "goods" TEXT NOT NULL DEFAULT '',
+    "category" TEXT NOT NULL DEFAULT '',
     "contact" TEXT NOT NULL DEFAULT '',
     "baseUrl" TEXT NOT NULL DEFAULT '',
     "channel" TEXT NOT NULL DEFAULT '',
@@ -129,8 +142,105 @@ CREATE TABLE "Supplier" (
     "deletedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
-    CONSTRAINT "Supplier_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT "Supplier_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    CONSTRAINT "Supplier_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "SupplierGood" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "supplierId" INTEGER NOT NULL,
+    "name" TEXT NOT NULL,
+    "rate" TEXT NOT NULL DEFAULT '',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "SupplierGood_supplierId_fkey" FOREIGN KEY ("supplierId") REFERENCES "Supplier" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "SupplierComment" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "supplierId" INTEGER NOT NULL,
+    "content" TEXT NOT NULL,
+    "createdById" INTEGER,
+    "creatorName" TEXT NOT NULL DEFAULT '',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "SupplierComment_supplierId_fkey" FOREIGN KEY ("supplierId") REFERENCES "Supplier" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "SupplierComment_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "Sub2Site" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "name" TEXT NOT NULL,
+    "baseUrl" TEXT NOT NULL,
+    "apiKey" TEXT NOT NULL DEFAULT '',
+    "enabled" BOOLEAN NOT NULL DEFAULT false,
+    "hysteresis" INTEGER NOT NULL DEFAULT 2,
+    "escalateAfterMin" INTEGER NOT NULL DEFAULT 3,
+    "loadFactorStep" INTEGER NOT NULL DEFAULT 10,
+    "maxLoadFactor" INTEGER NOT NULL DEFAULT 100,
+    "concurrencyStep" INTEGER NOT NULL DEFAULT 5,
+    "maxConcurrency" INTEGER NOT NULL DEFAULT 50,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+
+-- CreateTable
+CREATE TABLE "SupplierMonitor" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "supplierId" INTEGER NOT NULL,
+    "name" TEXT NOT NULL DEFAULT '默认',
+    "kind" TEXT NOT NULL DEFAULT 'openai',
+    "baseUrl" TEXT NOT NULL,
+    "apiKey" TEXT NOT NULL DEFAULT '',
+    "model" TEXT NOT NULL DEFAULT '',
+    "enabled" BOOLEAN NOT NULL DEFAULT true,
+    "slowMs" INTEGER NOT NULL DEFAULT 5000,
+    "sub2ChannelId" INTEGER,
+    "sub2SiteId" INTEGER,
+    "sub2AccountId" INTEGER,
+    "lastDispatchGrade" TEXT NOT NULL DEFAULT '',
+    "dispatchGradeStreak" INTEGER NOT NULL DEFAULT 0,
+    "originPriority" INTEGER,
+    "originConcurrency" INTEGER,
+    "originLoadFactor" INTEGER,
+    "lastStatus" TEXT NOT NULL DEFAULT 'unknown',
+    "lastLatencyMs" INTEGER,
+    "lastError" TEXT NOT NULL DEFAULT '',
+    "lastCheckedAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "SupplierMonitor_supplierId_fkey" FOREIGN KEY ("supplierId") REFERENCES "Supplier" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "SupplierMonitor_sub2SiteId_fkey" FOREIGN KEY ("sub2SiteId") REFERENCES "Sub2Site" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "Sub2DispatchLog" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "siteId" INTEGER NOT NULL,
+    "monitorId" INTEGER,
+    "accountId" INTEGER NOT NULL,
+    "action" TEXT NOT NULL,
+    "grade" TEXT NOT NULL DEFAULT '',
+    "concurrency" INTEGER,
+    "currentInUse" INTEGER,
+    "detail" TEXT NOT NULL DEFAULT '',
+    "ok" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "Sub2DispatchLog_siteId_fkey" FOREIGN KEY ("siteId") REFERENCES "Sub2Site" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "Sub2DispatchLog_monitorId_fkey" FOREIGN KEY ("monitorId") REFERENCES "SupplierMonitor" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "SupplierMonitorSample" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "monitorId" INTEGER NOT NULL,
+    "status" TEXT NOT NULL,
+    "latencyMs" INTEGER NOT NULL DEFAULT 0,
+    "httpStatus" INTEGER,
+    "error" TEXT NOT NULL DEFAULT '',
+    "checkedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "SupplierMonitorSample_monitorId_fkey" FOREIGN KEY ("monitorId") REFERENCES "SupplierMonitor" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -388,9 +498,6 @@ CREATE UNIQUE INDEX "Project_code_key" ON "Project"("code");
 CREATE INDEX "Project_status_idx" ON "Project"("status");
 
 -- CreateIndex
-CREATE INDEX "Project_ownerId_idx" ON "Project"("ownerId");
-
--- CreateIndex
 CREATE INDEX "ProjectDemand_projectId_idx" ON "ProjectDemand"("projectId");
 
 -- CreateIndex
@@ -412,6 +519,9 @@ CREATE INDEX "FinanceEntry_entryDate_idx" ON "FinanceEntry"("entryDate");
 CREATE INDEX "FinanceEntry_createdById_idx" ON "FinanceEntry"("createdById");
 
 -- CreateIndex
+CREATE INDEX "FinanceEntry_supplierId_idx" ON "FinanceEntry"("supplierId");
+
+-- CreateIndex
 CREATE INDEX "Product_projectId_idx" ON "Product"("projectId");
 
 -- CreateIndex
@@ -421,13 +531,13 @@ CREATE INDEX "Product_sortOrder_idx" ON "Product"("sortOrder");
 CREATE INDEX "Desk_ownerId_idx" ON "Desk"("ownerId");
 
 -- CreateIndex
-CREATE INDEX "Desk_projectId_idx" ON "Desk"("projectId");
-
--- CreateIndex
 CREATE INDEX "Desk_status_idx" ON "Desk"("status");
 
 -- CreateIndex
 CREATE INDEX "Desk_apiKind_idx" ON "Desk"("apiKind");
+
+-- CreateIndex
+CREATE INDEX "DeskProject_projectId_idx" ON "DeskProject"("projectId");
 
 -- CreateIndex
 CREATE INDEX "DeskItem_deskId_idx" ON "DeskItem"("deskId");
@@ -436,13 +546,34 @@ CREATE INDEX "DeskItem_deskId_idx" ON "DeskItem"("deskId");
 CREATE INDEX "DeskItem_productId_idx" ON "DeskItem"("productId");
 
 -- CreateIndex
-CREATE INDEX "Supplier_projectId_idx" ON "Supplier"("projectId");
-
--- CreateIndex
 CREATE INDEX "Supplier_ownerId_idx" ON "Supplier"("ownerId");
 
 -- CreateIndex
 CREATE INDEX "Supplier_status_idx" ON "Supplier"("status");
+
+-- CreateIndex
+CREATE INDEX "SupplierGood_supplierId_idx" ON "SupplierGood"("supplierId");
+
+-- CreateIndex
+CREATE INDEX "SupplierComment_supplierId_idx" ON "SupplierComment"("supplierId");
+
+-- CreateIndex
+CREATE INDEX "SupplierComment_createdById_idx" ON "SupplierComment"("createdById");
+
+-- CreateIndex
+CREATE INDEX "SupplierMonitor_supplierId_idx" ON "SupplierMonitor"("supplierId");
+
+-- CreateIndex
+CREATE INDEX "SupplierMonitor_sub2SiteId_idx" ON "SupplierMonitor"("sub2SiteId");
+
+-- CreateIndex
+CREATE INDEX "Sub2DispatchLog_siteId_createdAt_idx" ON "Sub2DispatchLog"("siteId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "Sub2DispatchLog_monitorId_idx" ON "Sub2DispatchLog"("monitorId");
+
+-- CreateIndex
+CREATE INDEX "SupplierMonitorSample_monitorId_checkedAt_idx" ON "SupplierMonitorSample"("monitorId", "checkedAt");
 
 -- CreateIndex
 CREATE INDEX "SupplierItem_supplierId_idx" ON "SupplierItem"("supplierId");

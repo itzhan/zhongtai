@@ -1,0 +1,28 @@
+import { prisma } from "@/lib/db";
+import { normalizeRate } from "@/lib/enums";
+import { badRequest, notFound, parseId, requireRoleFresh } from "@/lib/guard";
+import { jsonItem } from "@/lib/mask";
+import { ROLES } from "@/lib/rbac";
+
+export const runtime = "nodejs";
+
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const g = await requireRoleFresh(ROLES.RESOURCE, ROLES.FINANCE);
+  if (!g.ok) return g.res;
+
+  const supplierId = parseId((await ctx.params).id);
+  if (!supplierId) return badRequest("id 非法");
+
+  const supplier = await prisma.supplier.findUnique({ where: { id: supplierId }, select: { id: true } });
+  if (!supplier) return notFound("供应商不存在");
+
+  const body = (await req.json().catch(() => ({}))) as Partial<{ name: string; rate: string }>;
+  const name = (body.name ?? "").trim();
+  if (!name) return badRequest("请填写产品名称");
+  const rate = normalizeRate(body.rate ?? "");
+
+  const item = await prisma.supplierGood.create({
+    data: { supplierId, name, rate },
+  });
+  return jsonItem("supplierGood", g.session.role, item);
+}

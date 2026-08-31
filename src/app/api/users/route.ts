@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/auth";
 import { badRequest, requireAdmin, requireAdminFresh } from "@/lib/guard";
-import { isRole } from "@/lib/rbac";
+import { isAssignableRole } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
   }
   if (!displayName) return badRequest("请填写姓名");
   if (password.length < 6) return badRequest("密码至少 6 位");
-  if (!isRole(body.role)) return badRequest("角色非法");
+  if (!isAssignableRole(body.role)) return badRequest("角色只能是管理员或财务");
 
   const dup = await prisma.user.findUnique({ where: { username } });
   if (dup) return NextResponse.json({ error: "用户名已存在" }, { status: 409 });

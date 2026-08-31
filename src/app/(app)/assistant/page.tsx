@@ -24,12 +24,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { useProjectOptions } from "@/hooks/use-options";
+import { useProjectOptions, useSupplierOptions } from "@/hooks/use-options";
+import { COST_SOURCE, COST_SOURCE_LABEL, type CostSource } from "@/lib/enums";
 import { api } from "@/lib/api-client";
 import {
   FINANCE_KIND,
   FINANCE_KIND_LABEL,
-  FINANCE_KIND_VARIANT,
   type FinanceKind,
 } from "@/lib/enums";
 import { todayStr } from "@/lib/format";
@@ -55,6 +55,7 @@ interface ParseResult {
 
 export default function AssistantPage() {
   const projects = useProjectOptions(true);
+  const suppliers = useSupplierOptions(true);
   const [actions, setActions] = useState<ActionItem[]>([]);
   const [actionId, setActionId] = useState("");
   const [message, setMessage] = useState("");
@@ -287,6 +288,7 @@ export default function AssistantPage() {
               actionId={actionId}
               items={items}
               projects={projects}
+              suppliers={suppliers}
               onChange={updateItem}
               onRemove={removeItem}
             />
@@ -301,12 +303,14 @@ function DraftTable({
   actionId,
   items,
   projects,
+  suppliers,
   onChange,
   onRemove,
 }: {
   actionId: string;
   items: Record<string, unknown>[];
   projects: { id: number; name: string }[];
+  suppliers: { id: number; name: string }[];
   onChange: (index: number, patch: Record<string, unknown>) => void;
   onRemove: (index: number) => void;
 }) {
@@ -317,6 +321,7 @@ function DraftTable({
           <TableRow>
             <TableHead>项目</TableHead>
             <TableHead>方向</TableHead>
+            <TableHead>来源</TableHead>
             <TableHead>金额</TableHead>
             <TableHead>日期</TableHead>
             <TableHead>说明</TableHead>
@@ -346,7 +351,7 @@ function DraftTable({
               <TableCell>
                 <Select
                   value={String(d.kind ?? "cost")}
-                  onValueChange={(v) => onChange(i, { kind: v as FinanceKind })}
+                  onValueChange={(v) => onChange(i, { kind: v as FinanceKind, ...(v === "income" ? { costSource: "self", supplierId: null } : {}) })}
                 >
                   <SelectTrigger className="w-24">
                     <SelectValue />
@@ -359,6 +364,46 @@ function DraftTable({
                     ))}
                   </SelectContent>
                 </Select>
+              </TableCell>
+              <TableCell className="min-w-[160px]">
+                {d.kind === "cost" ? (
+                  <div className="flex gap-1">
+                    <Select
+                      value={String(d.costSource ?? "self")}
+                      onValueChange={(v) => onChange(i, { costSource: v as CostSource, ...(v === "self" ? { supplierId: null } : {}) })}
+                    >
+                      <SelectTrigger className="w-24">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {COST_SOURCE.map((s) => (
+                          <SelectItem key={s} value={s}>
+                            {COST_SOURCE_LABEL[s]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {d.costSource === "supplier" && (
+                      <Select
+                        value={d.supplierId ? String(d.supplierId) : ""}
+                        onValueChange={(v) => onChange(i, { supplierId: Number(v) })}
+                      >
+                        <SelectTrigger className="w-32">
+                          <SelectValue placeholder="供货方" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {suppliers.map((s) => (
+                            <SelectItem key={s.id} value={String(s.id)}>
+                              {s.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-sm text-muted-foreground">-</span>
+                )}
               </TableCell>
               <TableCell>
                 <Input
@@ -400,7 +445,6 @@ function DraftTable({
         <TableHeader>
           <TableRow>
             <TableHead>名称</TableHead>
-            <TableHead>负责人</TableHead>
             <TableHead>状态</TableHead>
             <TableHead>说明</TableHead>
             <TableHead className="w-10" />
@@ -413,12 +457,6 @@ function DraftTable({
                 <Input
                   value={String(d.name ?? "")}
                   onChange={(e) => onChange(i, { name: e.target.value })}
-                />
-              </TableCell>
-              <TableCell>
-                <Input
-                  value={String(d.ownerName ?? "")}
-                  onChange={(e) => onChange(i, { ownerName: e.target.value })}
                 />
               </TableCell>
               <TableCell>
@@ -454,295 +492,93 @@ function DraftTable({
     );
   }
 
-  if (actionId === "create_product") {
+  if (actionId === "create_desk") {
     return (
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>产品名</TableHead>
-            <TableHead>项目</TableHead>
-            <TableHead>状态</TableHead>
-            <TableHead>产能</TableHead>
-            <TableHead className="w-10" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map((d, i) => (
-            <TableRow key={i}>
-              <TableCell>
-                <Input
-                  value={String(d.name ?? "")}
-                  onChange={(e) => onChange(i, { name: e.target.value })}
-                />
-              </TableCell>
-              <TableCell className="min-w-[140px]">
-                <Select
-                  value={d.projectId == null ? "none" : String(d.projectId)}
-                  onValueChange={(v) =>
-                    onChange(i, { projectId: v === "none" ? null : Number(v) })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="项目" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">不绑定</SelectItem>
-                    {projects.map((p) => (
-                      <SelectItem key={p.id} value={String(p.id)}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </TableCell>
-              <TableCell>
-                <Input
-                  value={String(d.status ?? "")}
-                  onChange={(e) => onChange(i, { status: e.target.value })}
-                />
-              </TableCell>
-              <TableCell>
-                <Input
-                  value={String(d.capacity ?? "")}
-                  onChange={(e) => onChange(i, { capacity: e.target.value })}
-                />
-              </TableCell>
-              <TableCell>
-                <Button size="icon-sm" variant="ghost" onClick={() => onRemove(i)}>
-                  <Trash2 size={14} />
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    );
-  }
-
-  if (actionId === "create_source") {
-    return (
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>名称</TableHead>
-            <TableHead>渠道</TableHead>
-            <TableHead>类型</TableHead>
-            <TableHead className="w-10" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map((d, i) => (
-            <TableRow key={i}>
-              <TableCell>
-                <Input value={String(d.name ?? "")} onChange={(e) => onChange(i, { name: e.target.value })} />
-              </TableCell>
-              <TableCell>
-                <Input value={String(d.channel ?? "")} onChange={(e) => onChange(i, { channel: e.target.value })} />
-              </TableCell>
-              <TableCell>
-                <Input value={String(d.kinds ?? "")} onChange={(e) => onChange(i, { kinds: e.target.value })} placeholder="email,proxy,card" />
-              </TableCell>
-              <TableCell>
-                <Button size="icon-sm" variant="ghost" onClick={() => onRemove(i)}>
-                  <Trash2 size={14} />
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    );
-  }
-
-  if (actionId === "create_card") {
-    return (
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>卡号</TableHead>
-            <TableHead>CVV</TableHead>
-            <TableHead>有效期</TableHead>
-            <TableHead>余额</TableHead>
-            <TableHead>业务</TableHead>
-            <TableHead className="w-10" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map((d, i) => (
-            <TableRow key={i}>
-              <TableCell>
-                <Input className="font-mono text-xs min-w-[140px]" value={String(d.cardNo ?? "")} onChange={(e) => onChange(i, { cardNo: e.target.value })} />
-              </TableCell>
-              <TableCell>
-                <Input className="w-20" value={String(d.cvv ?? "")} onChange={(e) => onChange(i, { cvv: e.target.value })} />
-              </TableCell>
-              <TableCell>
-                <Input className="w-24" value={String(d.expiry ?? "")} onChange={(e) => onChange(i, { expiry: e.target.value })} placeholder="MM/YY" />
-              </TableCell>
-              <TableCell>
-                <Input type="number" className="w-24" value={String(d.amount ?? "")} onChange={(e) => onChange(i, { amount: Number(e.target.value) })} />
-              </TableCell>
-              <TableCell>
-                <Input value={String(d.usage ?? "")} onChange={(e) => onChange(i, { usage: e.target.value })} />
-              </TableCell>
-              <TableCell>
-                <Button size="icon-sm" variant="ghost" onClick={() => onRemove(i)}>
-                  <Trash2 size={14} />
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    );
-  }
-
-  if (actionId === "create_proxy") {
-    return (
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>协议</TableHead>
-            <TableHead>地址</TableHead>
-            <TableHead>端口</TableHead>
-            <TableHead>账号</TableHead>
-            <TableHead>密码</TableHead>
-            <TableHead className="w-10" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map((d, i) => (
-            <TableRow key={i}>
-              <TableCell>
-                <Badge variant="secondary">{String(d.protocol ?? "socks")}/{String(d.ipType ?? "static")}</Badge>
-              </TableCell>
-              <TableCell>
-                <Input value={String(d.host ?? "")} onChange={(e) => onChange(i, { host: e.target.value })} />
-              </TableCell>
-              <TableCell>
-                <Input type="number" className="w-24" value={String(d.port ?? "")} onChange={(e) => onChange(i, { port: Number(e.target.value) })} />
-              </TableCell>
-              <TableCell>
-                <Input value={String(d.username ?? "")} onChange={(e) => onChange(i, { username: e.target.value })} />
-              </TableCell>
-              <TableCell>
-                <Input type="password" value={String(d.password ?? "")} onChange={(e) => onChange(i, { password: e.target.value })} />
-              </TableCell>
-              <TableCell>
-                <Button size="icon-sm" variant="ghost" onClick={() => onRemove(i)}>
-                  <Trash2 size={14} />
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    );
-  }
-
-  if (actionId === "create_email") {
-    return (
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>邮箱</TableHead>
-            <TableHead>密码</TableHead>
-            <TableHead>业务</TableHead>
+            <TableHead>台子</TableHead>
+            <TableHead>所属项目</TableHead>
             <TableHead>状态</TableHead>
             <TableHead className="w-10" />
           </TableRow>
         </TableHeader>
         <TableBody>
-          {items.map((d, i) => (
-            <TableRow key={i}>
-              <TableCell>
-                <Input value={String(d.address ?? "")} onChange={(e) => onChange(i, { address: e.target.value })} />
-              </TableCell>
-              <TableCell>
-                <Input type="password" value={String(d.password ?? "")} onChange={(e) => onChange(i, { password: e.target.value })} />
-              </TableCell>
-              <TableCell>
-                <Input value={String(d.usage ?? "")} onChange={(e) => onChange(i, { usage: e.target.value })} />
-              </TableCell>
-              <TableCell>
-                <Badge variant="secondary">{String(d.status ?? "available")}</Badge>
-              </TableCell>
-              <TableCell>
-                <Button size="icon-sm" variant="ghost" onClick={() => onRemove(i)}>
-                  <Trash2 size={14} />
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
+          {items.map((d, i) => {
+            const names = Array.isArray(d.projectNames) ? d.projectNames.map(String) : [];
+            return (
+              <TableRow key={i}>
+                <TableCell>
+                  <Input value={String(d.name ?? "")} onChange={(e) => onChange(i, { name: e.target.value })} />
+                </TableCell>
+                <TableCell className="min-w-[160px]">
+                  <Select
+                    value={Array.isArray(d.projectIds) && d.projectIds[0] ? String(d.projectIds[0]) : ""}
+                    onValueChange={(v) => {
+                      const p = projects.find((item) => String(item.id) === v);
+                      onChange(i, { projectIds: [Number(v)], projectNames: p ? [p.name] : [] });
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="项目" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {projects.map((p) => (
+                        <SelectItem key={p.id} value={String(p.id)}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {names.length > 1 && (
+                    <p className="mt-1 text-xs text-muted-foreground">{names.join(" / ")}</p>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <Badge variant="secondary">{String(d.status ?? "active")}</Badge>
+                </TableCell>
+                <TableCell>
+                  <Button size="icon-sm" variant="ghost" onClick={() => onRemove(i)}>
+                    <Trash2 size={14} />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     );
   }
 
-  // desk / supplier 简化展示
   return (
     <Table>
       <TableHeader>
         <TableRow>
           <TableHead>名称</TableHead>
-          <TableHead>项目</TableHead>
-          <TableHead>状态</TableHead>
-          <TableHead>明细数</TableHead>
+          <TableHead>微信号</TableHead>
+          <TableHead>可以提供的货</TableHead>
           <TableHead className="w-10" />
         </TableRow>
       </TableHeader>
       <TableBody>
-        {items.map((d, i) => {
-          const lines = Array.isArray(d.items) ? d.items : [];
-          return (
-            <TableRow key={i}>
-              <TableCell>
-                <Input
-                  value={String(d.name ?? "")}
-                  onChange={(e) => onChange(i, { name: e.target.value })}
-                />
-              </TableCell>
-              <TableCell className="min-w-[140px]">
-                <Select
-                  value={String(d.projectId ?? "")}
-                  onValueChange={(v) => onChange(i, { projectId: Number(v) })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="项目" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {projects.map((p) => (
-                      <SelectItem key={p.id} value={String(p.id)}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </TableCell>
-              <TableCell>
-                <Badge variant="secondary">{String(d.status ?? "active")}</Badge>
-              </TableCell>
-              <TableCell className="text-muted-foreground text-sm">
-                {lines.length} 项
-                {lines.length > 0 && (
-                  <span className="block text-xs truncate max-w-[200px]">
-                    {lines
-                      .map((l) => {
-                        const x = l as { productName?: string; unitPrice?: number };
-                        return `${x.productName}@${x.unitPrice}`;
-                      })
-                      .join(", ")}
-                  </span>
-                )}
-              </TableCell>
-              <TableCell>
-                <Button size="icon-sm" variant="ghost" onClick={() => onRemove(i)}>
-                  <Trash2 size={14} />
-                </Button>
-              </TableCell>
-            </TableRow>
-          );
-        })}
+        {items.map((d, i) => (
+          <TableRow key={i}>
+            <TableCell>
+              <Input value={String(d.name ?? "")} onChange={(e) => onChange(i, { name: e.target.value })} />
+            </TableCell>
+            <TableCell>
+              <Input value={String(d.wechat ?? "")} onChange={(e) => onChange(i, { wechat: e.target.value })} />
+            </TableCell>
+            <TableCell>
+              <Input value={String(d.goods ?? "")} onChange={(e) => onChange(i, { goods: e.target.value })} />
+            </TableCell>
+            <TableCell>
+              <Button size="icon-sm" variant="ghost" onClick={() => onRemove(i)}>
+                <Trash2 size={14} />
+              </Button>
+            </TableCell>
+          </TableRow>
+        ))}
       </TableBody>
     </Table>
   );

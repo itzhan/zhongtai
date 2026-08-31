@@ -1,8 +1,14 @@
 import { prisma } from "@/lib/db";
+import {
+  isOneOf,
+  parseSupplierCategories,
+  serializeSupplierCategories,
+  splitGoodsNames,
+  SUPPLIER_CATEGORY,
+} from "@/lib/enums";
 import { badRequest, requireRole, requireRoleFresh } from "@/lib/guard";
-import { isOneOf, PARTNER_STATUS } from "@/lib/enums";
 import { jsonItem, jsonItems } from "@/lib/mask";
-import { SUPPLIER_INCLUDE, resolveLines } from "@/lib/partner";
+import { SUPPLIER_INCLUDE } from "@/lib/partner";
 import { ROLES } from "@/lib/rbac";
 
 export const runtime = "nodejs";
@@ -13,16 +19,23 @@ export async function GET(req: Request) {
 
   const sp = new URL(req.url).searchParams;
   const q = (sp.get("q") ?? "").trim();
-  const projectId = sp.get("projectId");
-  const status = sp.get("status");
+  const category = (sp.get("category") ?? "").trim();
 
   const items = await prisma.supplier.findMany({
     where: {
       ...(q
-        ? { OR: [{ name: { contains: q } }, { channel: { contains: q } }, { contact: { contains: q } }] }
+        ? {
+            OR: [
+              { name: { contains: q } },
+              { wechat: { contains: q } },
+              { contact: { contains: q } },
+              { baseUrl: { contains: q } },
+              { goods: { contains: q } },
+              { goodsItems: { some: { name: { contains: q } } } },
+            ],
+          }
         : {}),
-      ...(projectId && projectId !== "all" ? { projectId: Number(projectId) } : {}),
-      ...(status && status !== "all" ? { status } : {}),
+      ...(isOneOf(SUPPLIER_CATEGORY, category) ? { category: { contains: category } } : {}),
     },
     include: SUPPLIER_INCLUDE,
     orderBy: { id: "desc" },
@@ -37,37 +50,29 @@ export async function POST(req: Request) {
 
   const body = (await req.json().catch(() => ({}))) as Partial<{
     name: string;
-    projectId: number;
-    ownerId: number | null;
+    wechat: string;
     contact: string;
-    channel: string;
-    status: string;
-    notes: string;
     baseUrl: string;
-    items: { productName: string; apiKey?: string; unitPrice: number; note?: string }[];
+    goods: string;
+    category: string | string[];
   }>;
 
   const name = (body.name ?? "").trim();
-  if (!name) return badRequest("请填写供货方名称");
-  if (!body.projectId) return badRequest("请选择归属项目");
-  if (body.status !== undefined && !isOneOf(PARTNER_STATUS, body.status)) {
-    return badRequest("状态非法");
-  }
+  if (!name) return badRequest("请填写供应商名称");
+  const categories = parseSupplierCategories(body.category);
+  if (!categories.length) return badRequest("请选择业务分类");
 
-  const lines = await resolveLines(prisma, body.items, Number(body.projectId));
-  if (typeof lines === "string") return badRequest(lines);
-
+  const goodsNames = splitGoodsNames(body.goods ?? "");
   const item = await prisma.supplier.create({
     data: {
       name,
-      ownerId: body.ownerId ?? g.session.id,
-      projectId: Number(body.projectId),
-      contact: body.contact ?? "",
-      channel: body.channel ?? "",
-      baseUrl: body.baseUrl ?? "",
-      status: body.status ?? "active",
-      notes: body.notes ?? "",
-      items: { create: lines },
+      owner: { connect: { id: g.session.id } },
+      wechat: (body.wechat ?? "").trim(),
+      contact: (body.contact ?? "").trim(),
+      baseUrl: (body.baseUrl ?? "").trim(),
+      goods: goodsNames.join("、"),
+      category: serializeSupplierCategories(categories),
+      goodsItems: { create: goodsNames.map((goodsName) => ({ name: goodsName, rate: "" })) },
     },
     include: SUPPLIER_INCLUDE,
   });

@@ -11,6 +11,8 @@ import {
   Package,
   Settings,
   ShoppingCart,
+  Activity,
+  SlidersHorizontal,
   Sparkles,
   Store,
   Truck,
@@ -19,7 +21,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { isNavGroup, isUnder, navFor, type IconKey, type NavGroup, type NavItem } from "@/lib/nav";
+import { isNavGroup, isUnder, NAV_ITEMS, navFor, type IconKey, type NavGroup, type NavItem } from "@/lib/nav";
 import { ROLE_LABEL } from "@/lib/rbac";
 import { cn } from "@/lib/utils";
 import { useSession } from "./RoleProvider";
@@ -39,10 +41,17 @@ export const ICONS: Record<IconKey, LucideIcon> = {
   purchase: ShoppingCart,
   assistant: Sparkles,
   settings: Settings,
+  monitor: Activity,
+  schedule: SlidersHorizontal,
 };
 
 export function isActive(pathname: string, item: NavItem): boolean {
-  return isUnder(pathname, item.match ?? item.href);
+  const base = item.match ?? item.href;
+  if (!isUnder(pathname, base)) return false;
+  return !NAV_ITEMS.some((other) => {
+    const otherBase = other.match ?? other.href;
+    return otherBase.length > base.length && isUnder(pathname, otherBase);
+  });
 }
 
 export function NavLink({

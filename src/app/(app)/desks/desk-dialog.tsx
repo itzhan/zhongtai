@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import GoodsLines, { type GoodsLine } from "@/components/GoodsLines";
-import { useSession } from "@/components/RoleProvider";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
-import { useProjectOptions, useUserOptions } from "@/hooks/use-options";
+import { useProjectOptions } from "@/hooks/use-options";
 import { api, mutate } from "@/lib/api-client";
 import {
   DESK_API_KIND,
@@ -33,7 +33,6 @@ import {
   type DeskApiKind,
   type PartnerStatus,
 } from "@/lib/enums";
-import { ROLES } from "@/lib/rbac";
 import type { Desk } from "./types";
 
 export default function DeskDialog({
@@ -47,12 +46,9 @@ export default function DeskDialog({
   initial: Desk | null;
   onSaved: () => void;
 }) {
-  const session = useSession();
-  const isSales = session.role === ROLES.SALES;
-
   const [name, setName] = useState("");
-  const [projectId, setProjectId] = useState("");
-  const [ownerId, setOwnerId] = useState("");
+  const [projectIds, setProjectIds] = useState<string[]>([]);
+  const [ownerName, setOwnerName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKind, setApiKind] = useState<DeskApiKind>("none");
   const [apiToken, setApiToken] = useState("");
@@ -63,13 +59,12 @@ export default function DeskDialog({
   const [saving, setSaving] = useState(false);
 
   const projects = useProjectOptions(open);
-  const sales = useUserOptions(ROLES.SALES, open && !isSales);
 
   useEffect(() => {
     if (!open) return;
     setName(initial?.name ?? "");
-    setProjectId(initial?.projectId ? String(initial.projectId) : "");
-    setOwnerId(String(initial?.ownerId ?? session.id));
+    setProjectIds((initial?.projects ?? []).map((item) => String(item.project.id)));
+    setOwnerName(initial?.ownerName || initial?.owner?.displayName || "");
     setBaseUrl(initial?.baseUrl ?? "");
     setApiKind(
       (DESK_API_KIND.includes(initial?.apiKind as DeskApiKind)
@@ -91,19 +86,18 @@ export default function DeskDialog({
         note: it.note,
       })),
     );
-  }, [open, initial, session.id]);
+  }, [open, initial]);
 
   async function save() {
-    if (!name.trim()) return toast.warning("请填写台子名称");
-    if (!projectId) return toast.warning("请选择归属项目");
+    if (!name.trim()) return toast.warning("请填写需求名称");
 
     const bad = lines.findIndex((l) => !l.productName.trim());
     if (bad >= 0) return toast.warning(`第 ${bad + 1} 行未填写产品`);
 
     const payload = {
       name: name.trim(),
-      projectId: Number(projectId),
-      ...(isSales ? {} : { ownerId: Number(ownerId) }),
+      projectIds: projectIds.map(Number),
+      ownerName: ownerName.trim(),
       baseUrl: baseUrl.trim(),
       apiKind,
       apiToken,
@@ -140,52 +134,52 @@ export default function DeskDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{initial ? "编辑台子" : "新增台子"}</DialogTitle>
+          <DialogTitle>{initial ? "编辑需求" : "新增需求"}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="grid sm:grid-cols-2 gap-3">
-            <Field label="台子名称" required>
+            <Field label="需求名称" required>
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="客户代号"
+                placeholder="客户代号 / 需求名"
               />
             </Field>
-            <Field label="归属销售" required hint={isSales ? "销售只能建自己的台子" : undefined}>
-              {isSales ? (
-                <Input value={session.displayName} disabled />
-              ) : (
-                <Select value={ownerId} onValueChange={setOwnerId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="选择销售" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sales.map((u) => (
-                      <SelectItem key={u.id} value={String(u.id)}>
-                        {u.displayName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
+            <Field label="归属销售" hint="随便填，不需要是系统账号">
+              <Input
+                value={ownerName}
+                onChange={(e) => setOwnerName(e.target.value)}
+                placeholder="销售名字"
+              />
             </Field>
           </div>
 
           <div className="grid sm:grid-cols-2 gap-3">
-            <Field label="归属项目" required>
-              <Select value={projectId} onValueChange={setProjectId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="选择项目" />
-                </SelectTrigger>
-                <SelectContent>
-                  {projects.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <Field label="所属项目" hint="可同时挂多个项目">
+              <div className="max-h-36 overflow-y-auto rounded-md border border-border p-2 space-y-1.5">
+                {projects.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">暂无项目</p>
+                ) : (
+                  projects.map((p) => {
+                    const value = String(p.id);
+                    const checked = projectIds.includes(value);
+                    return (
+                      <label key={p.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(v) =>
+                            setProjectIds((prev) =>
+                              v === true ? [...prev, value] : prev.filter((id) => id !== value),
+                            )
+                          }
+                        />
+                        {p.name}
+                      </label>
+                    );
+                  })
+                )}
+              </div>
             </Field>
             <Field label="状态">
               <Select value={status} onValueChange={(v) => setStatus(v as PartnerStatus)}>

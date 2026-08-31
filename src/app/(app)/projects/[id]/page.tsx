@@ -2,6 +2,7 @@
 import { use, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
+  ClipboardList,
   Loader2,
   MoreHorizontal,
   Percent,
@@ -11,7 +12,6 @@ import {
   TrendingUp,
   Wallet,
 } from "lucide-react";
-import TrendChart from "@/components/charts/TrendChart";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import DataState from "@/components/DataState";
 import PageHeader from "@/components/PageHeader";
@@ -21,6 +21,7 @@ import StatCard from "@/components/StatCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -53,12 +54,10 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { useProductOptions } from "@/hooks/use-options";
 import { api, mutate } from "@/lib/api-client";
-import { seriesColor } from "@/lib/chart-theme";
 import {
-  BATCH_STATUS_LABEL,
-  BATCH_STATUS_VARIANT,
+  COST_SOURCE,
+  COST_SOURCE_LABEL,
   DESK_API_KIND,
   DESK_API_KIND_LABEL,
   DESK_API_KIND_VARIANT,
@@ -67,22 +66,22 @@ import {
   FINANCE_KIND_VARIANT,
   PROJECT_STATUS_LABEL,
   PROJECT_STATUS_VARIANT,
-  type BatchStatus,
+  type CostSource,
   type DeskApiKind,
   type FinanceKind,
   type ProjectStatus,
 } from "@/lib/enums";
 import { fmtMoneyShort, todayStr } from "@/lib/format";
 import { ROLES } from "@/lib/rbac";
+import type { Desk } from "../../desks/types";
+import { useSupplierOptions } from "@/hooks/use-options";
 
 interface Demand {
   id: number;
   productId: number | null;
   productName: string;
-  spec: string;
-  quantity: number | null;
+  sellPrice: number;
   note: string;
-  product: { id: number; name: string } | null;
 }
 
 interface DeskRow {
@@ -93,6 +92,7 @@ interface DeskRow {
   apiKind: DeskApiKind | string;
   apiToken: string | null;
   demand: string;
+  ownerName: string;
   owner: { displayName: string };
   items: { quantity: number; unitPrice: number | null; productName?: string }[];
 }
@@ -104,37 +104,23 @@ interface Entry {
   note: string;
   entryDate: string;
   creatorName: string;
+  costSource?: CostSource | string;
+  supplierId?: number | null;
   createdBy: { id: number; displayName: string } | null;
-}
-
-interface Batch {
-  id: number;
-  batchDate: string;
-  quantity: number;
-  status: BatchStatus;
-  product: { name: string };
-  operator: { displayName: string };
-  note: string;
-  resultData: string;
+  supplier?: { id: number; name: string } | null;
 }
 
 interface Detail {
   project: {
     id: number;
     code: string;
-    ownerName: string;
     name: string;
     status: ProjectStatus;
     description: string;
-    enableDemands: boolean;
-    enableBatches: boolean;
-    owner: { id: number; displayName: string } | null;
   };
-  /// 成本/收入必有；demands/batches 仅项目勾选后返回
   entries: Entry[] | null;
   desks: DeskRow[] | null;
   demands: Demand[] | null;
-  batches: Batch[] | null;
 }
 
 interface Profit {
@@ -142,7 +128,6 @@ interface Profit {
   cost: number;
   profit: number;
   margin: number;
-  daily: { date: string; label: string; income: number; cost: number; profit: number }[];
 }
 
 interface UsageInfo {
@@ -155,6 +140,7 @@ interface UsageInfo {
 
 const ENTRY_EDITORS = [ROLES.ADMIN, ROLES.FINANCE, ROLES.SALES, ROLES.RESOURCE];
 const DEMAND_EDITORS = [ROLES.ADMIN, ROLES.FINANCE, ROLES.SALES];
+const PAGE_SIZES = [10, 30, 50, 100] as const;
 
 export default function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -168,6 +154,9 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const [error, setError] = useState<string | null>(null);
 
   const [entryFilter, setEntryFilter] = useState<"all" | FinanceKind>("all");
+  const [creatorFilter, setCreatorFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(10);
   const [entryOpen, setEntryOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<Entry | null>(null);
   const [deletingEntry, setDeletingEntry] = useState<Entry | null>(null);
@@ -176,6 +165,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const [editingDemand, setEditingDemand] = useState<Demand | null>(null);
   const [deletingDemand, setDeletingDemand] = useState<Demand | null>(null);
 
+  const [attachOpen, setAttachOpen] = useState(false);
   const [usageMap, setUsageMap] = useState<Record<number, UsageInfo | "loading" | "error">>({});
 
   const reload = useCallback(() => {
@@ -199,11 +189,27 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
     reload();
   }, [reload]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [entryFilter, creatorFilter, pageSize]);
+
   const filteredEntries = useMemo(() => {
     const list = detail?.entries ?? [];
-    if (entryFilter === "all") return list;
-    return list.filter((e) => e.kind === entryFilter);
-  }, [detail?.entries, entryFilter]);
+    return list.filter((e) => {
+      if (entryFilter !== "all" && e.kind !== entryFilter) return false;
+      if (creatorFilter !== "all" && e.creatorName !== creatorFilter) return false;
+      return true;
+    });
+  }, [detail?.entries, entryFilter, creatorFilter]);
+
+  const creators = useMemo(() => {
+    const names = new Set((detail?.entries ?? []).map((item) => item.creatorName).filter(Boolean));
+    return [...names];
+  }, [detail?.entries]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredEntries.length / pageSize));
+  const safePage = Math.min(page, pageCount);
+  const pagedEntries = filteredEntries.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   const canWriteEntry = (kind: FinanceKind) => {
     if (session.role === ROLES.ADMIN || session.role === ROLES.FINANCE) return true;
@@ -229,7 +235,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
       <PageHeader
         back="/projects"
         title={p?.name ?? "项目详情"}
-        subtitle={p ? `负责人 ${p.ownerName || p.owner?.displayName || "-"}` : undefined}
+        subtitle={p ? p.code : undefined}
         actions={
           p && (
             <Badge variant={PROJECT_STATUS_VARIANT[p.status]}>
@@ -241,77 +247,132 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
       <DataState loading={loading} error={error} empty={!detail}>
         {profit && (
-          <>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-4">
-              <StatCard
-                label="总收入"
-                value={fmtMoneyShort(profit.revenue)}
-                icon={TrendingUp}
-                accent="success"
-              />
-              <StatCard
-                label="总成本"
-                value={fmtMoneyShort(profit.cost)}
-                icon={Receipt}
-                accent="warning"
-                positiveIsGood={false}
-              />
-              <StatCard
-                label="净利润"
-                value={fmtMoneyShort(profit.profit)}
-                icon={Wallet}
-                accent={profit.profit >= 0 ? "primary" : "danger"}
-              />
-              <StatCard
-                label="利润率"
-                value={`${(profit.margin * 100).toFixed(1)}%`}
-                icon={Percent}
-                accent="default"
-              />
-            </div>
-
-            <Card className="mb-4">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">逐日利润</CardTitle>
-                <CardDescription>近 30 天 · 收入流水 − 成本流水</CardDescription>
-              </CardHeader>
-              <CardContent className="pt-2">
-                <TrendChart
-                  data={profit.daily}
-                  series={[{ key: "profit", name: "利润", color: seriesColor.profit }]}
-                  xKey="label"
-                  zeroLine
-                  height={260}
-                  emptyText="还没有收支流水"
-                />
-              </CardContent>
-            </Card>
-          </>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-4">
+            <StatCard label="总收入" value={fmtMoneyShort(profit.revenue)} icon={TrendingUp} accent="success" />
+            <StatCard label="总成本" value={fmtMoneyShort(profit.cost)} icon={Receipt} accent="warning" positiveIsGood={false} />
+            <StatCard
+              label="净利润"
+              value={fmtMoneyShort(profit.profit)}
+              icon={Wallet}
+              accent={profit.profit >= 0 ? "primary" : "danger"}
+            />
+            <StatCard label="利润率" value={`${(profit.margin * 100).toFixed(1)}%`} icon={Percent} accent="default" />
+          </div>
         )}
 
-        {/* 1. 成本 / 收入记录（必有） */}
+        {detail?.demands !== null && detail?.demands !== undefined && (
+          <div className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-2">
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="flex size-7 items-center justify-center rounded-md bg-primary/10 text-primary">
+                <ClipboardList size={14} />
+              </span>
+              <span className="text-sm font-medium">甲方需求</span>
+            </div>
+            <span className="h-4 w-px shrink-0 bg-border" />
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+              {detail.demands.length === 0 ? (
+                <span className="text-sm text-muted-foreground">还没有需求</span>
+              ) : (
+                detail.demands.map((d) => (
+                  <span
+                    key={d.id}
+                    className="inline-flex max-w-[18rem] items-start gap-2 rounded-lg bg-muted/70 px-2.5 py-1.5"
+                  >
+                    <button
+                      type="button"
+                      className="min-w-0 text-left hover:text-primary"
+                      onClick={() => {
+                        setEditingDemand(d);
+                        setDemandOpen(true);
+                      }}
+                    >
+                      <span className="flex items-baseline gap-2">
+                        <span className="truncate text-sm font-medium">{d.productName}</span>
+                        <span className="shrink-0 tabular-nums text-sm text-muted-foreground">
+                          {fmtDemandPrice(d.sellPrice)}
+                        </span>
+                      </span>
+                      {d.note ? (
+                        <span className="mt-0.5 line-clamp-2 block text-xs leading-snug text-muted-foreground" title={d.note}>
+                          {d.note}
+                        </span>
+                      ) : null}
+                    </button>
+                    <RoleGate roles={DEMAND_EDITORS}>
+                      <button
+                        type="button"
+                        className="mt-0.5 shrink-0 text-muted-foreground/70 hover:text-destructive"
+                        aria-label={`删除 ${d.productName}`}
+                        onClick={() => setDeletingDemand(d)}
+                      >
+                        ×
+                      </button>
+                    </RoleGate>
+                  </span>
+                ))
+              )}
+            </div>
+            <RoleGate roles={DEMAND_EDITORS}>
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0 rounded-full"
+                onClick={() => {
+                  setEditingDemand(null);
+                  setDemandOpen(true);
+                }}
+              >
+                <Plus size={14} />
+                添加
+              </Button>
+            </RoleGate>
+          </div>
+        )}
+
         {detail?.entries !== null && detail?.entries !== undefined && (
           <Card className="mb-4">
-            <CardHeader className="pb-3 flex-row items-center justify-between space-y-0 gap-3 flex-wrap">
-              <div>
-                <CardTitle className="text-base">成本 / 收入记录</CardTitle>
-                <CardDescription>直接记账；成本会同步出现在采购页</CardDescription>
-              </div>
-              <div className="flex items-center gap-2">
-                <Tabs
-                  value={entryFilter}
-                  onValueChange={(v) => setEntryFilter(v as "all" | FinanceKind)}
-                >
-                  <TabsList>
-                    <TabsTrigger value="all">全部</TabsTrigger>
-                    <TabsTrigger value="income">收入</TabsTrigger>
-                    <TabsTrigger value="cost">成本</TabsTrigger>
-                  </TabsList>
-                </Tabs>
+            <CardHeader className="pb-3 flex-row items-center justify-between space-y-0 gap-3">
+              <CardTitle className="text-base shrink-0">成本 / 收入记录</CardTitle>
+              <div className="flex items-center justify-end gap-2 overflow-x-auto">
+                <Select value={entryFilter} onValueChange={(v) => setEntryFilter(v as "all" | FinanceKind)}>
+                  <SelectTrigger className="h-8 w-28">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部方向</SelectItem>
+                    <SelectItem value="income">收入</SelectItem>
+                    <SelectItem value="cost">成本</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={creatorFilter} onValueChange={setCreatorFilter}>
+                  <SelectTrigger className="h-8 w-32">
+                    <SelectValue placeholder="录入人" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部录入人</SelectItem>
+                    {creators.map((name) => (
+                      <SelectItem key={name} value={name}>
+                        {name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v) as (typeof PAGE_SIZES)[number])}>
+                  <SelectTrigger className="h-8 w-20">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PAGE_SIZES.map((size) => (
+                      <SelectItem key={size} value={String(size)}>
+                        {size} 条
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <RoleGate roles={ENTRY_EDITORS}>
                   <Button
                     size="sm"
-                    className="rounded-full"
+                    className="rounded-full shrink-0"
                     onClick={() => {
                       setEditingEntry(null);
                       setEntryOpen(true);
@@ -327,81 +388,109 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
               {filteredEntries.length === 0 ? (
                 <Empty text="还没有记录" />
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>日期</TableHead>
-                      <TableHead>方向</TableHead>
-                      <TableHead className="text-right">金额</TableHead>
-                      <TableHead>介绍</TableHead>
-                      <TableHead>录入人</TableHead>
-                      <TableHead className="w-10" />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredEntries.map((e) => (
-                      <TableRow key={e.id}>
-                        <TableCell className="font-mono text-xs">{e.entryDate}</TableCell>
-                        <TableCell>
-                          <Badge variant={FINANCE_KIND_VARIANT[e.kind]}>
-                            {FINANCE_KIND_LABEL[e.kind]}
-                          </Badge>
-                        </TableCell>
-                        <TableCell
-                          className={`text-right tabular-nums font-medium ${
-                            e.kind === "income" ? "text-success" : "text-warning"
-                          }`}
-                        >
-                          {e.amount === null ? "···" : fmtMoneyShort(e.amount)}
-                        </TableCell>
-                        <TableCell className="max-w-[280px] truncate">{e.note || "-"}</TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {e.creatorName || e.createdBy?.displayName || "-"}
-                        </TableCell>
-                        <TableCell>
-                          {canWriteEntry(e.kind) && (
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button size="icon-sm" variant="ghost" aria-label="更多">
-                                  <MoreHorizontal size={16} />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setEditingEntry(e);
-                                    setEntryOpen(true);
-                                  }}
-                                >
-                                  编辑
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="text-destructive"
-                                  onClick={() => setDeletingEntry(e)}
-                                >
-                                  删除
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          )}
-                        </TableCell>
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>日期</TableHead>
+                        <TableHead>方向</TableHead>
+                        <TableHead>来源</TableHead>
+                        <TableHead className="text-right">金额</TableHead>
+                        <TableHead>介绍</TableHead>
+                        <TableHead>录入人</TableHead>
+                        <TableHead className="w-10" />
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {pagedEntries.map((e) => (
+                        <TableRow key={e.id}>
+                          <TableCell className="font-mono text-xs">{e.entryDate}</TableCell>
+                          <TableCell>
+                            <Badge variant={FINANCE_KIND_VARIANT[e.kind]}>{FINANCE_KIND_LABEL[e.kind]}</Badge>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground text-sm">
+                            {e.kind === "cost"
+                              ? e.costSource === "supplier"
+                                ? e.supplier?.name || "供应商"
+                                : "自产"
+                              : "-"}
+                          </TableCell>
+                          <TableCell
+                            className={`text-right tabular-nums font-medium ${
+                              e.kind === "income" ? "text-success" : "text-warning"
+                            }`}
+                          >
+                            {e.amount === null ? "···" : fmtMoneyShort(e.amount)}
+                          </TableCell>
+                          <TableCell className="max-w-[280px] truncate">{e.note || "-"}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {e.creatorName || e.createdBy?.displayName || "-"}
+                          </TableCell>
+                          <TableCell>
+                            {canWriteEntry(e.kind) && (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button size="icon-sm" variant="ghost" aria-label="更多">
+                                    <MoreHorizontal size={16} />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      setEditingEntry(e);
+                                      setEntryOpen(true);
+                                    }}
+                                  >
+                                    编辑
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem className="text-destructive" onClick={() => setDeletingEntry(e)}>
+                                    删除
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  <div className="flex items-center justify-between px-4 py-3 text-sm text-muted-foreground">
+                    <span>
+                      第 {safePage} / {pageCount} 页
+                    </span>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>
+                        上一页
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={safePage >= pageCount}
+                        onClick={() => setPage(safePage + 1)}
+                      >
+                        下一页
+                      </Button>
+                    </div>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
         )}
 
-        {/* 2. 台子信息（可空） */}
         {detail?.desks && (
           <Card className="mb-4">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">台子信息</CardTitle>
-              <CardDescription>
-                用于查看下游消耗（NewAPI / Sub2API），不绑台子的中转项目可留空
-              </CardDescription>
+            <CardHeader className="pb-3 flex-row items-center justify-between space-y-0">
+              <div>
+                <CardTitle className="text-base">台子信息</CardTitle>
+                <CardDescription>一个台子可以同时属于多个项目</CardDescription>
+              </div>
+              <RoleGate roles={[ROLES.ADMIN, ROLES.SALES, ROLES.FINANCE]}>
+                <Button size="sm" className="rounded-full" onClick={() => setAttachOpen(true)}>
+                  <Plus size={14} />
+                  挂入台子
+                </Button>
+              </RoleGate>
             </CardHeader>
             <CardContent className="p-0 border-t">
               {detail.desks.length === 0 ? (
@@ -419,27 +508,21 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                   </TableHeader>
                   <TableBody>
                     {detail.desks.map((d) => {
-                      const kind = (DESK_API_KIND.includes(d.apiKind as DeskApiKind)
-                        ? d.apiKind
-                        : "none") as DeskApiKind;
+                      const kind = (
+                        DESK_API_KIND.includes(d.apiKind as DeskApiKind) ? d.apiKind : "none"
+                      ) as DeskApiKind;
                       const usage = usageMap[d.id];
                       return (
                         <TableRow key={d.id}>
                           <TableCell>
                             <p className="font-medium">{d.name}</p>
                             {d.baseUrl && (
-                              <p className="text-xs text-muted-foreground truncate max-w-[200px]">
-                                {d.baseUrl}
-                              </p>
+                              <p className="text-xs text-muted-foreground truncate max-w-[200px]">{d.baseUrl}</p>
                             )}
                           </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {d.owner.displayName}
-                          </TableCell>
+                          <TableCell className="text-muted-foreground">{d.ownerName || d.owner.displayName}</TableCell>
                           <TableCell>
-                            <Badge variant={DESK_API_KIND_VARIANT[kind]}>
-                              {DESK_API_KIND_LABEL[kind]}
-                            </Badge>
+                            <Badge variant={DESK_API_KIND_VARIANT[kind]}>{DESK_API_KIND_LABEL[kind]}</Badge>
                           </TableCell>
                           <TableCell className="text-sm">
                             {usage === "loading" ? (
@@ -448,157 +531,42 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                               <span className="text-destructive">拉取失败</span>
                             ) : usage ? (
                               <span className="text-muted-foreground">
-                                {usage.usedUsd == null
-                                  ? usage.message
-                                  : `$${usage.usedUsd} · ${usage.message}`}
+                                {usage.usedUsd == null ? usage.message : `$${usage.usedUsd} · ${usage.message}`}
                               </span>
                             ) : (
                               <span className="text-muted-foreground/60">未拉取</span>
                             )}
                           </TableCell>
                           <TableCell>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="rounded-full"
-                              disabled={kind === "none" || usage === "loading"}
-                              onClick={() => fetchUsage(d.id)}
-                            >
-                              <RefreshCw size={12} />
-                              刷新
-                            </Button>
+                            <div className="flex gap-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="rounded-full"
+                                disabled={kind === "none" || usage === "loading"}
+                                onClick={() => fetchUsage(d.id)}
+                              >
+                                <RefreshCw size={12} />
+                                刷新
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={async () => {
+                                  const ok = await mutate(
+                                    () => api.del(`/api/projects/${id}/desks?deskId=${d.id}`),
+                                    { success: "已从本项目解绑", error: "解绑失败" },
+                                  );
+                                  if (ok) reload();
+                                }}
+                              >
+                                解绑
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
                     })}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* 3. 甲方需求清单（项目勾选后才显示） */}
-        {detail?.demands && (
-          <Card className="mb-4">
-            <CardHeader className="pb-3 flex-row items-center justify-between space-y-0">
-              <div>
-                <CardTitle className="text-base">甲方需求清单</CardTitle>
-                <CardDescription>这个项目甲方需要什么货</CardDescription>
-              </div>
-              <RoleGate roles={DEMAND_EDITORS}>
-                <Button
-                  size="sm"
-                  className="rounded-full"
-                  onClick={() => {
-                    setEditingDemand(null);
-                    setDemandOpen(true);
-                  }}
-                >
-                  <Plus size={14} />
-                  添加需求
-                </Button>
-              </RoleGate>
-            </CardHeader>
-            <CardContent className="p-0 border-t">
-              {detail.demands.length === 0 ? (
-                <Empty text="还没有需求，点右上角添加" />
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>货名</TableHead>
-                      <TableHead>规格</TableHead>
-                      <TableHead className="text-right">数量</TableHead>
-                      <TableHead>备注</TableHead>
-                      <TableHead className="w-10" />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {detail.demands.map((d) => (
-                      <TableRow key={d.id}>
-                        <TableCell className="font-medium">{d.productName}</TableCell>
-                        <TableCell className="text-muted-foreground">{d.spec || "-"}</TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {d.quantity == null ? "-" : d.quantity.toLocaleString("en-US")}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground max-w-[200px] truncate">
-                          {d.note || "-"}
-                        </TableCell>
-                        <TableCell>
-                          <RoleGate roles={DEMAND_EDITORS}>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button size="icon-sm" variant="ghost" aria-label="更多">
-                                  <MoreHorizontal size={16} />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setEditingDemand(d);
-                                    setDemandOpen(true);
-                                  }}
-                                >
-                                  编辑
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="text-destructive"
-                                  onClick={() => setDeletingDemand(d)}
-                                >
-                                  删除
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </RoleGate>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* 4. 产出批次（项目勾选后才显示） */}
-        {detail?.batches && (
-          <Card className="mb-4">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">产出批次</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0 border-t">
-              {detail.batches.length === 0 ? (
-                <Empty text="该项目下还没有产出批次" />
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>日期</TableHead>
-                      <TableHead>产品</TableHead>
-                      <TableHead className="text-right">数量</TableHead>
-                      <TableHead>状态</TableHead>
-                      <TableHead>生产人</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {detail.batches.map((b) => (
-                      <TableRow key={b.id}>
-                        <TableCell className="font-mono text-xs">{b.batchDate}</TableCell>
-                        <TableCell className="font-medium">{b.product.name}</TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {b.quantity.toLocaleString("en-US")}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={BATCH_STATUS_VARIANT[b.status]}>
-                            {BATCH_STATUS_LABEL[b.status]}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {b.operator.displayName}
-                        </TableCell>
-                      </TableRow>
-                    ))}
                   </TableBody>
                 </Table>
               )}
@@ -624,17 +592,25 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
         onSaved={reload}
       />
 
+      <AttachDeskDialog
+        open={attachOpen}
+        onOpenChange={setAttachOpen}
+        projectId={id}
+        linkedIds={(detail?.desks ?? []).map((item) => item.id)}
+        onSaved={reload}
+      />
+
       <ConfirmDialog
         open={deletingDemand !== null}
         onOpenChange={(v) => !v && setDeletingDemand(null)}
         title={`删除需求「${deletingDemand?.productName ?? ""}」？`}
-        description="删除后可从回收逻辑中恢复前不可见。"
+        description="删除后详情页不再显示这条需求。"
         onConfirm={async () => {
           if (!deletingDemand) return;
-          const ok = await mutate(
-            () => api.del(`/api/projects/${id}/demands/${deletingDemand.id}`),
-            { success: "已删除", error: "删除失败" },
-          );
+          const ok = await mutate(() => api.del(`/api/projects/${id}/demands/${deletingDemand.id}`), {
+            success: "已删除",
+            error: "删除失败",
+          });
           setDeletingDemand(null);
           if (ok) reload();
         }}
@@ -644,7 +620,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
         open={deletingEntry !== null}
         onOpenChange={(v) => !v && setDeletingEntry(null)}
         title="删除这条记录？"
-        description="删除后项目利润会相应变化。"
+        description="删除后项目利润和供应商明细会一起变化。"
         onConfirm={async () => {
           if (!deletingEntry) return;
           const ok = await mutate(() => api.del(`/api/entries/${deletingEntry.id}`), {
@@ -663,6 +639,11 @@ function Empty({ text }: { text: string }) {
   return <p className="text-sm text-muted-foreground py-12 text-center">{text}</p>;
 }
 
+function fmtDemandPrice(price: number) {
+  const amount = Number.isInteger(price) ? String(price) : price.toFixed(2);
+  return `¥${amount}`;
+}
+
 function DemandDialog({
   open,
   onOpenChange,
@@ -676,39 +657,24 @@ function DemandDialog({
   initial: Demand | null;
   onSaved: () => void;
 }) {
-  const products = useProductOptions(open);
-  const [productId, setProductId] = useState("");
   const [productName, setProductName] = useState("");
-  const [spec, setSpec] = useState("");
-  const [quantity, setQuantity] = useState("");
+  const [sellPrice, setSellPrice] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    setProductId(initial?.productId ? String(initial.productId) : "");
     setProductName(initial?.productName ?? "");
-    setSpec(initial?.spec ?? "");
-    setQuantity(initial?.quantity != null ? String(initial.quantity) : "");
+    setSellPrice(initial?.sellPrice != null ? String(initial.sellPrice) : "");
     setNote(initial?.note ?? "");
   }, [open, initial]);
 
   async function save() {
     if (!productName.trim()) return toast.warning("请填写货名");
-    let qty: number | null = null;
-    if (quantity.trim()) {
-      const n = Number(quantity);
-      if (!Number.isFinite(n) || n < 0) return toast.warning("数量非法");
-      qty = n;
-    }
+    const price = Number(sellPrice);
+    if (!Number.isFinite(price) || price < 0) return toast.warning("卖价非法");
 
-    const payload = {
-      productId: productId ? Number(productId) : null,
-      productName: productName.trim(),
-      spec,
-      quantity: qty,
-      note,
-    };
+    const payload = { productName: productName.trim(), sellPrice: price, note: note.trim() };
 
     setSaving(true);
     try {
@@ -730,61 +696,25 @@ function DemandDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{initial ? "编辑需求" : "添加需求"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
-          <Field label="关联产品" hint="可选，选中后会回填货名">
-            <Select
-              value={productId || "none"}
-              onValueChange={(v) => {
-                if (v === "none") {
-                  setProductId("");
-                  return;
-                }
-                setProductId(v);
-                const found = products.find((p) => String(p.id) === v);
-                if (found) setProductName(found.name);
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="不关联" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">不关联</SelectItem>
-                {products.map((p) => (
-                  <SelectItem key={p.id} value={String(p.id)}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
           <Field label="货名" required>
-            <Input
-              value={productName}
-              onChange={(e) => setProductName(e.target.value)}
-              placeholder="甲方要的货"
-            />
+            <Input value={productName} onChange={(e) => setProductName(e.target.value)} placeholder="甲方要的货" />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="规格">
-              <Input value={spec} onChange={(e) => setSpec(e.target.value)} placeholder="规格说明" />
-            </Field>
-            <Field label="数量">
-              <Input
-                type="number"
-                min={0}
-                step="any"
-                className="tabular-nums"
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-              />
-            </Field>
-          </div>
-          <Field label="备注">
-            <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
+          <Field label="卖价" required>
+            <Input type="number" min={0} step="any" className="tabular-nums" value={sellPrice} onChange={(e) => setSellPrice(e.target.value)} />
+          </Field>
+          <Field label="描述">
+            <Textarea
+              rows={5}
+              className="min-h-28 resize-y"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="规格、交付要求等说明"
+            />
           </Field>
         </div>
         <DialogFooter>
@@ -816,10 +746,12 @@ function EntryDialog({
   role: string;
   onSaved: () => void;
 }) {
-  const defaultKind: FinanceKind =
-    role === ROLES.RESOURCE ? "cost" : role === ROLES.SALES ? "income" : "cost";
+  const defaultKind: FinanceKind = role === ROLES.RESOURCE ? "cost" : role === ROLES.SALES ? "income" : "cost";
+  const suppliers = useSupplierOptions(open);
 
   const [kind, setKind] = useState<FinanceKind>(defaultKind);
+  const [costSource, setCostSource] = useState<CostSource>("self");
+  const [supplierId, setSupplierId] = useState("");
   const [amount, setAmount] = useState("");
   const [entryDate, setEntryDate] = useState("");
   const [note, setNote] = useState("");
@@ -834,6 +766,8 @@ function EntryDialog({
   useEffect(() => {
     if (!open) return;
     setKind(initial?.kind ?? defaultKind);
+    setCostSource((initial?.costSource as CostSource) || "self");
+    setSupplierId(initial?.supplierId ? String(initial.supplierId) : initial?.supplier ? String(initial.supplier.id) : "");
     setAmount(initial?.amount != null ? String(initial.amount) : "");
     setEntryDate(initial?.entryDate ?? todayStr());
     setNote(initial?.note ?? "");
@@ -844,8 +778,18 @@ function EntryDialog({
     if (!Number.isFinite(amt) || amt < 0) return toast.warning("金额非法");
     if (!entryDate) return toast.warning("请选择日期");
     if (!note.trim()) return toast.warning("请填写介绍");
+    if (kind === "cost" && costSource === "supplier" && !supplierId) {
+      return toast.warning("请选择供应商");
+    }
 
-    const payload = { kind, amount: amt, entryDate, note: note.trim() };
+    const payload = {
+      kind,
+      amount: amt,
+      entryDate,
+      note: note.trim(),
+      costSource: kind === "cost" ? costSource : "self",
+      supplierId: kind === "cost" && costSource === "supplier" ? Number(supplierId) : null,
+    };
 
     setSaving(true);
     try {
@@ -887,6 +831,40 @@ function EntryDialog({
               </Tabs>
             )}
           </Field>
+          {kind === "cost" && (
+            <>
+              <Field label="成本类型" required>
+                <Select value={costSource} onValueChange={(v) => setCostSource(v as CostSource)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {COST_SOURCE.map((item) => (
+                      <SelectItem key={item} value={item}>
+                        {COST_SOURCE_LABEL[item]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              {costSource === "supplier" && (
+                <Field label="供应商" required>
+                  <Select value={supplierId} onValueChange={setSupplierId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="选择供应商" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {suppliers.map((item) => (
+                        <SelectItem key={item.id} value={String(item.id)}>
+                          {item.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              )}
+            </>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <Field label="金额" required>
               <Input
@@ -904,12 +882,7 @@ function EntryDialog({
             </Field>
           </div>
           <Field label="介绍" required hint="本次花销或收入说明">
-            <Textarea
-              rows={3}
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="例如：上游结算 200 刀 / 甲方回款"
-            />
+            <Textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="例如：上游结算 200 刀 / 甲方回款" />
           </Field>
         </div>
         <DialogFooter>
@@ -919,6 +892,91 @@ function EntryDialog({
           <Button onClick={save} disabled={saving}>
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             保存
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AttachDeskDialog({
+  open,
+  onOpenChange,
+  projectId,
+  linkedIds,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  projectId: string;
+  linkedIds: number[];
+  onSaved: () => void;
+}) {
+  const [desks, setDesks] = useState<Desk[]>([]);
+  const [picked, setPicked] = useState<number[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setPicked([]);
+    api
+      .get<{ items: Desk[] }>("/api/desks")
+      .then((res) => setDesks(res.items ?? []))
+      .catch(() => setDesks([]));
+  }, [open]);
+
+  const available = desks.filter((item) => !linkedIds.includes(item.id));
+
+  async function save() {
+    if (!picked.length) return toast.warning("请选择台子");
+    setSaving(true);
+    try {
+      const ok = await mutate(() => api.post(`/api/projects/${projectId}/desks`, { deskIds: picked }), {
+        success: "已挂入",
+        error: "挂入失败",
+      });
+      if (ok) {
+        onOpenChange(false);
+        onSaved();
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>挂入已有台子</DialogTitle>
+        </DialogHeader>
+        <div className="max-h-72 overflow-y-auto space-y-2">
+          {available.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-6 text-center">没有可挂入的台子</p>
+          ) : (
+            available.map((item) => {
+              const checked = picked.includes(item.id);
+              return (
+                <label key={item.id} className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={checked}
+                    onCheckedChange={(v) =>
+                      setPicked((prev) => (v === true ? [...prev, item.id] : prev.filter((id) => id !== item.id)))
+                    }
+                  />
+                  <span className="font-medium">{item.name}</span>
+                </label>
+              );
+            })
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+            取消
+          </Button>
+          <Button onClick={save} disabled={saving || !available.length}>
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            挂入
           </Button>
         </DialogFooter>
       </DialogContent>

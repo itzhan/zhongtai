@@ -6,7 +6,7 @@ import { ROLES, type Role } from "@/lib/rbac";
 export const runtime = "nodejs";
 
 export async function GET() {
-  const g = await requireRole(ROLES.SALES, ROLES.RESOURCE, ROLES.FINANCE, ROLES.PRODUCTION);
+  const g = await requireRole(ROLES.FINANCE);
   if (!g.ok) return g.res;
 
   const items = actionsForRole(g.session.role as Role).map((a) => ({

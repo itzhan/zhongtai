@@ -1,7 +1,8 @@
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { badRequest, notFound, parseId, requireRole, requireRoleFresh } from "@/lib/guard";
-import { FINANCE_KIND, isOneOf } from "@/lib/enums";
-import { jsonItem, jsonItems } from "@/lib/mask";
+import { COST_SOURCE, FINANCE_KIND, isOneOf } from "@/lib/enums";
+import { jsonItem, maskMany } from "@/lib/mask";
 import { ROLES } from "@/lib/rbac";
 
 export const runtime = "nodejs";
@@ -9,11 +10,12 @@ export const runtime = "nodejs";
 const INCLUDE = {
   project: { select: { id: true, code: true, name: true } },
   createdBy: { select: { id: true, displayName: true } },
+  supplier: { select: { id: true, name: true } },
 } as const;
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const PAGE_SIZES = new Set([10, 30, 50, 100]);
 
-/// 读: 销售看收入、资源看成本、财务/管理员全看 (admin 经 hasRole 隐式全通)
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const g = await requireRole(ROLES.SALES, ROLES.RESOURCE, ROLES.FINANCE);
   if (!g.ok) return g.res;
@@ -26,10 +28,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 
   const sp = new URL(req.url).searchParams;
   const kind = sp.get("kind");
+  const creator = (sp.get("creator") ?? "").trim();
   const from = sp.get("from");
   const to = sp.get("to");
+  const page = Math.max(1, Number(sp.get("page") ?? 1) || 1);
+  const rawSize = Number(sp.get("pageSize") ?? 10);
+  const pageSize = PAGE_SIZES.has(rawSize) ? rawSize : 10;
 
-  // 角色默认过滤方向
   let kindFilter: string | undefined;
   if (kind && kind !== "all") {
     if (!isOneOf(FINANCE_KIND, kind)) return badRequest("流水类型非法");
@@ -40,20 +45,33 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     kindFilter = "cost";
   }
 
-  const items = await prisma.financeEntry.findMany({
-    where: {
-      projectId,
-      deletedAt: null,
-      ...(kindFilter ? { kind: kindFilter } : {}),
-      ...(from || to
-        ? { entryDate: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
-        : {}),
-    },
-    include: INCLUDE,
-    orderBy: [{ entryDate: "desc" }, { id: "desc" }],
-  });
+  const where = {
+    projectId,
+    deletedAt: null,
+    ...(kindFilter ? { kind: kindFilter } : {}),
+    ...(creator && creator !== "all" ? { creatorName: creator } : {}),
+    ...(from || to
+      ? { entryDate: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
+      : {}),
+  };
 
-  return jsonItems("financeEntry", g.session.role, items);
+  const [total, items] = await Promise.all([
+    prisma.financeEntry.count({ where }),
+    prisma.financeEntry.findMany({
+      where,
+      include: INCLUDE,
+      orderBy: [{ entryDate: "desc" }, { id: "desc" }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
+
+  return NextResponse.json({
+    items: maskMany("financeEntry", g.session.role, items),
+    total,
+    page,
+    pageSize,
+  });
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -71,11 +89,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     amount: number;
     note: string;
     entryDate: string;
+    costSource: string;
+    supplierId: number | null;
   }>;
 
   if (!isOneOf(FINANCE_KIND, body.kind)) return badRequest("请选择收入或成本");
 
-  // 销售只能录收入, 资源只能录成本
   if (g.session.role === ROLES.SALES && body.kind !== "income") {
     return badRequest("销售只能新增收入记录");
   }
@@ -89,6 +108,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return badRequest("日期格式应为 YYYY-MM-DD");
   }
 
+  let costSource = "self";
+  let supplierId: number | null = null;
+  if (body.kind === "cost") {
+    costSource = body.costSource ?? "self";
+    if (!isOneOf(COST_SOURCE, costSource)) return badRequest("成本类型非法");
+    if (costSource === "supplier") {
+      const sid = Number(body.supplierId);
+      if (!sid) return badRequest("请选择供应商");
+      const supplier = await prisma.supplier.findUnique({ where: { id: sid }, select: { id: true } });
+      if (!supplier) return badRequest("供应商不存在");
+      supplierId = sid;
+    }
+  }
+
   const item = await prisma.financeEntry.create({
     data: {
       projectId,
@@ -96,6 +129,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       amount,
       note: body.note ?? "",
       entryDate: body.entryDate,
+      costSource,
+      supplierId,
       createdById: g.session.id,
       creatorName: g.session.displayName,
     },

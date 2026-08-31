@@ -6,8 +6,7 @@ import { isOneOf, PROJECT_STATUS } from "@/lib/enums";
 export const runtime = "nodejs";
 
 const INCLUDE = {
-  owner: { select: { id: true, displayName: true } },
-  _count: { select: { desks: true, products: true, purchases: true } },
+  _count: { select: { deskLinks: true, products: true, purchases: true } },
 } as const;
 
 export async function GET(req: Request) {
@@ -26,7 +25,12 @@ export async function GET(req: Request) {
     include: INCLUDE,
     orderBy: { id: "desc" },
   });
-  return NextResponse.json({ items });
+  return NextResponse.json({
+    items: items.map((item) => ({
+      ...item,
+      _count: { desks: item._count.deskLinks, products: item._count.products, purchases: item._count.purchases },
+    })),
+  });
 }
 
 export async function POST(req: Request) {
@@ -37,8 +41,6 @@ export async function POST(req: Request) {
     code: string;
     name: string;
     status: string;
-    ownerId: number | null;
-    ownerName: string;
     description: string;
     enableDemands: boolean;
     enableBatches: boolean;
@@ -57,13 +59,16 @@ export async function POST(req: Request) {
       code,
       name,
       status: body.status ?? "active",
-      ownerId: body.ownerId ?? null,
-      ownerName: (body.ownerName ?? "").trim(),
       description: body.description ?? "",
-      enableDemands: Boolean(body.enableDemands),
+      enableDemands: body.enableDemands === undefined ? true : Boolean(body.enableDemands),
       enableBatches: Boolean(body.enableBatches),
     },
     include: INCLUDE,
   });
-  return NextResponse.json({ item });
+  return NextResponse.json({
+    item: {
+      ...item,
+      _count: { desks: item._count.deskLinks, products: item._count.products, purchases: item._count.purchases },
+    },
+  });
 }

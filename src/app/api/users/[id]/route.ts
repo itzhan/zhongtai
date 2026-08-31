@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/auth";
 import { badRequest, notFound, parseId, requireAdminFresh } from "@/lib/guard";
-import { isRole } from "@/lib/rbac";
+import { isAssignableRole } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 
@@ -41,7 +41,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     data.displayName = v;
   }
   if (body.role !== undefined) {
-    if (!isRole(body.role)) return badRequest("角色非法");
+    if (!isAssignableRole(body.role)) return badRequest("角色只能是管理员或财务");
     // 不允许把自己降级 —— 否则最后一个管理员能把自己锁在门外
     if (id === g.session.id && body.role !== "admin") {
       return badRequest("不能修改自己的角色");

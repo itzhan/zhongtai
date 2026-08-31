@@ -14,6 +14,13 @@ export type Role = (typeof ROLES)[keyof typeof ROLES];
 
 export const ALL_ROLES: readonly Role[] = Object.values(ROLES);
 
+/// 用户管理里可分配的角色。其余角色仍可用于存量账号与接口鉴权。
+export const ASSIGNABLE_ROLES = [ROLES.ADMIN, ROLES.FINANCE] as const;
+
+export function isAssignableRole(v: unknown): v is Role {
+  return typeof v === "string" && (ASSIGNABLE_ROLES as readonly string[]).includes(v);
+}
+
 export const ROLE_LABEL: Record<Role, string> = {
   admin: "管理员",
   sales: "销售",

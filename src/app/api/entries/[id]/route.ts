@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { badRequest, forbidden, notFound, parseId, requireRoleFresh } from "@/lib/guard";
-import { FINANCE_KIND, isOneOf } from "@/lib/enums";
+import { COST_SOURCE, FINANCE_KIND, isOneOf } from "@/lib/enums";
 import { jsonItem } from "@/lib/mask";
 import { ROLES } from "@/lib/rbac";
 
@@ -10,6 +10,7 @@ export const runtime = "nodejs";
 const INCLUDE = {
   project: { select: { id: true, code: true, name: true } },
   createdBy: { select: { id: true, displayName: true } },
+  supplier: { select: { id: true, name: true } },
 } as const;
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -39,6 +40,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     amount: number;
     note: string;
     entryDate: string;
+    costSource: string;
+    supplierId: number | null;
   }>;
 
   const data: Record<string, unknown> = {};
@@ -54,6 +57,24 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     data.amount = v;
   }
   if (body.note !== undefined) data.note = body.note;
+  const nextKind = (data.kind as string | undefined) ?? existing.kind;
+  if (nextKind === "income") {
+    data.costSource = "self";
+    data.supplierId = null;
+  } else if (body.costSource !== undefined || body.supplierId !== undefined) {
+    const costSource = body.costSource ?? existing.costSource ?? "self";
+    if (!isOneOf(COST_SOURCE, costSource)) return badRequest("成本类型非法");
+    data.costSource = costSource;
+    if (costSource === "supplier") {
+      const sid = Number(body.supplierId ?? existing.supplierId);
+      if (!sid) return badRequest("请选择供应商");
+      const supplier = await prisma.supplier.findUnique({ where: { id: sid }, select: { id: true } });
+      if (!supplier) return badRequest("供应商不存在");
+      data.supplierId = sid;
+    } else {
+      data.supplierId = null;
+    }
+  }
   if (body.entryDate !== undefined) {
     if (!DATE_RE.test(body.entryDate)) return badRequest("日期格式应为 YYYY-MM-DD");
     data.entryDate = body.entryDate;

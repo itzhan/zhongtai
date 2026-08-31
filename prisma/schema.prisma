@@ -42,7 +42,6 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  ownedProjects       Project[]            @relation("ProjectOwner")
   ownedDesks          Desk[]               @relation("DeskOwner")
   ownedSuppliers      Supplier[]           @relation("SupplierOwner")
   purchases           Purchase[]
@@ -52,6 +51,7 @@ model User {
   receivedAllocations ResourceAllocation[] @relation("AllocationAssignee")
   createdAllocations  ResourceAllocation[] @relation("AllocationCreator")
   financeEntries      FinanceEntry[]       @relation("EntryCreator")
+  supplierComments    SupplierComment[]    @relation("SupplierCommentAuthor")
 
   @@index([role])
 }
@@ -71,9 +71,6 @@ model Project {
   name        String
   /// active 进行中 | paused 暂停 | closed 已结束
   status      String   @default("active")
-  /// 项目负责人 (通常是销售或管理员)
-  ownerId     Int?
-  ownerName   String   @default("")
   description String   @default("")
   /// 是否启用甲方需求清单模块（可选）
   enableDemands Boolean @default(false)
@@ -84,10 +81,8 @@ model Project {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  owner       User?                @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   products    Product[]
-  desks       Desk[]
-  suppliers   Supplier[]
+  deskLinks   DeskProject[]
   purchases   Purchase[]
   requests    ResourceRequest[]
   batches     ProductionBatch[]
@@ -99,7 +94,6 @@ model Project {
   entries     FinanceEntry[]
 
   @@index([status])
-  @@index([ownerId])
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -113,6 +107,8 @@ model ProjectDemand {
   productId   Int?
   /// 货名 (手填或从产品回填)
   productName String
+  /// 卖价
+  sellPrice   Float    @default(0)
   /// 规格说明, 自由文本
   spec        String   @default("")
   quantity    Float?
@@ -146,19 +142,24 @@ model FinanceEntry {
   note        String   @default("")
   /// 业务日 "YYYY-MM-DD"
   entryDate   String
+  /// self 自产 | supplier 供应商。仅 kind=cost 有意义
+  costSource  String   @default("self")
+  supplierId  Int?
   createdById Int?
   creatorName String   @default("")
   deletedAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdBy User?   @relation("EntryCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  supplier  Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  createdBy User?     @relation("EntryCreator", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([projectId])
   @@index([kind])
   @@index([entryDate])
   @@index([createdById])
+  @@index([supplierId])
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -203,9 +204,10 @@ model Desk {
   id        Int      @id @default(autoincrement())
   /// 台子名称 / 客户代号
   name      String
-  /// 归属销售 —— 销售角色只能看到 ownerId = 自己的台子
+  /// 系统归属（销售角色按这个做行级过滤）
   ownerId   Int
-  projectId Int
+  /// 展示用归属销售，自由文本，不要求是系统账号
+  ownerName String   @default("")
   /// 联系方式 (TG / 微信 / 邮箱, 自由文本)
   contact   String   @default("")
   baseUrl   String   @default("")
@@ -225,14 +227,26 @@ model Desk {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  owner   User       @relation("DeskOwner", fields: [ownerId], references: [id])
-  project Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  items   DeskItem[]
+  owner    User          @relation("DeskOwner", fields: [ownerId], references: [id])
+  projects DeskProject[]
+  items    DeskItem[]
 
   @@index([ownerId])
-  @@index([projectId])
   @@index([status])
   @@index([apiKind])
+}
+
+/// 台子 ↔ 项目 多对多。一个台子可以同时挂在多个项目下。
+model DeskProject {
+  deskId    Int
+  projectId Int
+  createdAt DateTime @default(now())
+
+  desk    Desk    @relation(fields: [deskId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([deskId, projectId])
+  @@index([projectId])
 }
 
 /// 台子的一条货明细 = 产品 + 数量 + 卖价单价。
@@ -271,8 +285,15 @@ model Supplier {
   name      String
   /// 对接人 (资源管理员或采购)
   ownerId   Int?
-  projectId Int
+  /// 微信号
+  wechat    String   @default("")
+  /// 可以提供的货，自由文本
+  goods     String   @default("")
+  /// 逗号分隔的 gpt/claude/aws/cardshop。空 = 未分类
+  category  String   @default("")
+  /// Telegram，卡网常用
   contact   String   @default("")
+  /// 卡网网站 / 对接地址
   baseUrl   String   @default("")
   /// 供货渠道说明 —— 自由文本
   channel   String   @default("")
@@ -283,13 +304,150 @@ model Supplier {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  owner   User?          @relation("SupplierOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  project Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  items   SupplierItem[]
+  owner      User?             @relation("SupplierOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  items      SupplierItem[]
+  entries    FinanceEntry[]
+  goodsItems SupplierGood[]
+  comments   SupplierComment[]
+  monitors   SupplierMonitor[]
 
-  @@index([projectId])
   @@index([ownerId])
   @@index([status])
+}
+
+/// 供应商可提供的货：产品名 + 倍率（倍率可以是 "1.2" 或 "0.8-1.2"）
+model SupplierGood {
+  id         Int      @id @default(autoincrement())
+  supplierId Int
+  name       String
+  /// 倍率，自由文本。允许单值或区间，如 "1.2" / "0.8-1.2"
+  rate       String   @default("")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@index([supplierId])
+}
+
+/// 对供应商的评论，方便后续对照、探索
+model SupplierComment {
+  id          Int      @id @default(autoincrement())
+  supplierId  Int
+  content     String
+  createdById Int?
+  creatorName String   @default("")
+  createdAt   DateTime @default(now())
+
+  supplier  Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  createdBy User?    @relation("SupplierCommentAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([supplierId])
+  @@index([createdById])
+}
+
+/// sub2api 中转实例。和需求管理的 Desk 不是同一类东西。
+model Sub2Site {
+  id               Int      @id @default(autoincrement())
+  name             String
+  baseUrl          String
+  /// 管理员 x-api-key，API 层脱敏
+  apiKey           String   @default("")
+  /// 是否参与自动调度，默认关
+  enabled          Boolean  @default(false)
+  /// 连续多少分钟同向评级才写上游
+  hysteresis       Int      @default(2)
+  /// 便宜号有流量缺口后等多久开始加码
+  escalateAfterMin Int      @default(3)
+  loadFactorStep   Int      @default(10)
+  maxLoadFactor    Int      @default(100)
+  concurrencyStep  Int      @default(5)
+  maxConcurrency   Int      @default(50)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  monitors SupplierMonitor[]
+  logs     Sub2DispatchLog[]
+}
+
+/// 供应商延迟探测目标。一个供应商可以有多条渠道。
+/// kind=openai → /v1/chat/completions；kind=openai_response → /v1/responses；kind=claude → /v1/messages。
+/// sub2ChannelId 旧占位列，保留不删。真正绑定走 sub2SiteId + sub2AccountId。
+model SupplierMonitor {
+  id             Int       @id @default(autoincrement())
+  supplierId     Int
+  /// 渠道名，如 官key / AWS
+  name           String    @default("默认")
+  /// openai | openai_response | claude
+  kind           String    @default("openai")
+  baseUrl        String
+  apiKey         String    @default("")
+  model          String    @default("")
+  enabled        Boolean   @default(true)
+  /// 超过该毫秒数记为偏慢
+  slowMs         Int       @default(5000)
+  /// 预留：sub2api 渠道 id，有值时开关会同步上游
+  sub2ChannelId  Int?
+  sub2SiteId     Int?
+  /// sub2api 账号数字 id
+  sub2AccountId  Int?
+  lastDispatchGrade   String @default("")
+  dispatchGradeStreak Int    @default(0)
+  originPriority      Int?
+  originConcurrency   Int?
+  originLoadFactor    Int?
+  /// up | slow | down | limited | unknown
+  lastStatus     String    @default("unknown")
+  lastLatencyMs  Int?
+  lastError      String    @default("")
+  lastCheckedAt  DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  supplier     Supplier                 @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  sub2Site     Sub2Site?                @relation(fields: [sub2SiteId], references: [id], onDelete: SetNull)
+  samples      SupplierMonitorSample[]
+  dispatchLogs Sub2DispatchLog[]
+
+  @@index([supplierId])
+  @@index([sub2SiteId])
+}
+
+/// 自动调度写上游的动作记录
+model Sub2DispatchLog {
+  id           Int      @id @default(autoincrement())
+  siteId       Int
+  monitorId    Int?
+  accountId    Int
+  /// pause | resume | set_priority | set_load_factor | set_concurrency | recover | reset
+  action       String
+  grade        String   @default("")
+  concurrency  Int?
+  currentInUse Int?
+  detail       String   @default("")
+  ok           Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  site    Sub2Site         @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  monitor SupplierMonitor? @relation(fields: [monitorId], references: [id], onDelete: SetNull)
+
+  @@index([siteId, createdAt])
+  @@index([monitorId])
+}
+
+model SupplierMonitorSample {
+  id         Int      @id @default(autoincrement())
+  monitorId  Int
+  /// up | slow | down | limited
+  status     String
+  latencyMs  Int      @default(0)
+  httpStatus Int?
+  error      String   @default("")
+  checkedAt  DateTime @default(now())
+
+  monitor SupplierMonitor @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+
+  @@index([monitorId, checkedAt])
 }
 
 /// 供货方能提供的一种货 + 进货价。

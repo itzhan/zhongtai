@@ -2,8 +2,8 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
-import GoodsLines, { type GoodsLine } from "@/components/GoodsLines";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -13,18 +13,13 @@ import {
 } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
-import { Textarea } from "@/components/ui/textarea";
-import { useProjectOptions } from "@/hooks/use-options";
 import { api, mutate } from "@/lib/api-client";
-import { PARTNER_STATUS, PARTNER_STATUS_LABEL, type PartnerStatus } from "@/lib/enums";
+import {
+  parseSupplierCategories,
+  SUPPLIER_CATEGORY,
+  SUPPLIER_CATEGORY_LABEL,
+  type SupplierCategory,
+} from "@/lib/enums";
 import type { Supplier } from "../desks/types";
 
 export default function SupplierDialog({
@@ -39,55 +34,40 @@ export default function SupplierDialog({
   onSaved: () => void;
 }) {
   const [name, setName] = useState("");
-  const [projectId, setProjectId] = useState("");
+  const [wechat, setWechat] = useState("");
+  const [contact, setContact] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
-  const [status, setStatus] = useState<PartnerStatus>("active");
-  const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState<GoodsLine[]>([]);
+  const [goods, setGoods] = useState("");
+  const [categories, setCategories] = useState<SupplierCategory[]>([]);
   const [saving, setSaving] = useState(false);
-
-  const projects = useProjectOptions(open);
 
   useEffect(() => {
     if (!open) return;
     setName(initial?.name ?? "");
-    setProjectId(initial?.projectId ? String(initial.projectId) : "");
+    setWechat(initial?.wechat ?? "");
+    setContact(initial?.contact ?? "");
     setBaseUrl(initial?.baseUrl ?? "");
-    setStatus(initial?.status ?? "active");
-    setNotes(initial?.notes ?? "");
-    setLines(
-      (initial?.items ?? []).map((it) => ({
-        key: crypto.randomUUID(),
-        productId: it.productId,
-        productName: it.productName || it.product.name,
-        apiKey: it.apiKey || "",
-        quantity: 0,
-        unitPrice: it.unitPrice ?? 0,
-        note: it.note,
-      })),
-    );
+    setGoods(initial?.goods ?? "");
+    setCategories(parseSupplierCategories(initial?.category));
   }, [open, initial]);
 
-  async function save() {
-    if (!name.trim()) return toast.warning("请填写供货方名称");
-    if (!projectId) return toast.warning("请选择归属项目");
+  function toggle(value: SupplierCategory) {
+    setCategories((current) =>
+      current.includes(value) ? current.filter((item) => item !== value) : [...current, value],
+    );
+  }
 
-    const bad = lines.findIndex((l) => !l.productName.trim());
-    if (bad >= 0) return toast.warning(`第 ${bad + 1} 行未填写产品`);
+  async function save() {
+    if (!name.trim()) return toast.warning("请填写供应商名称");
+    if (!categories.length) return toast.warning("请选择业务分类");
 
     const payload = {
       name: name.trim(),
-      projectId: Number(projectId),
+      wechat: wechat.trim(),
+      contact: contact.trim(),
       baseUrl: baseUrl.trim(),
-      status,
-      notes,
-      items: lines.map((l) => ({
-        productName: l.productName.trim(),
-        apiKey: l.apiKey,
-        quantity: 0,
-        unitPrice: l.unitPrice,
-        note: l.note,
-      })),
+      goods: goods.trim(),
+      category: categories,
     };
 
     setSaving(true);
@@ -110,71 +90,58 @@ export default function SupplierDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{initial ? "编辑供货方" : "新增供货方"}</DialogTitle>
+          <DialogTitle>{initial ? "编辑供应商" : "新增供应商"}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="grid sm:grid-cols-2 gap-3">
-            <Field label="供货方名称" required>
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="商家 / 中间人"
-              />
-            </Field>
-            <Field label="归属项目" required>
-              <Select value={projectId} onValueChange={setProjectId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="选择项目" />
-                </SelectTrigger>
-                <SelectContent>
-                  {projects.map((p) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          </div>
-
-          <div className="grid sm:grid-cols-2 gap-3">
-            <Field label="状态">
-              <Select value={status} onValueChange={(v) => setStatus(v as PartnerStatus)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PARTNER_STATUS.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {PARTNER_STATUS_LABEL[s]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Base URL"><Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.example.com" /></Field>
-          </div>
-
-          <Separator />
-
-          <div className="space-y-2">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/50">
-              能供的货
-            </p>
-            <GoodsLines
-              value={lines}
-              onChange={setLines}
-              priceLabel="进货价"
-              showKey
-            />
-          </div>
-
-          <Field label="备注">
-            <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <Field label="供应商名称" required>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="商家 / 中间人" />
           </Field>
+          <Field label="业务分类" required hint="可多选">
+            <div className="flex flex-wrap gap-4 pt-1">
+              {SUPPLIER_CATEGORY.map((value) => (
+                <label key={value} className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox checked={categories.includes(value)} onCheckedChange={() => toggle(value)} />
+                  <span className="text-sm">{SUPPLIER_CATEGORY_LABEL[value]}</span>
+                </label>
+              ))}
+            </div>
+          </Field>
+          {categories.includes("cardshop") ? (
+            <>
+              <Field label="网站链接" hint="卡网首页或对接地址">
+                <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://" />
+              </Field>
+              <Field label="Telegram">
+                <Input value={contact} onChange={(e) => setContact(e.target.value)} placeholder="@username 或 t.me/..." />
+              </Field>
+              <Field label="微信号">
+                <Input value={wechat} onChange={(e) => setWechat(e.target.value)} placeholder="微信号" />
+              </Field>
+              <Field label="可以提供的产品" hint="自由文本，多个用顿号或逗号分开">
+                <Input
+                  value={goods}
+                  onChange={(e) => setGoods(e.target.value)}
+                  placeholder="例如：Visa 虚拟卡、充值卡"
+                />
+              </Field>
+            </>
+          ) : (
+            <>
+              <Field label="微信号">
+                <Input value={wechat} onChange={(e) => setWechat(e.target.value)} placeholder="微信号" />
+              </Field>
+              <Field label="可以提供的货" hint="自由文本，多个用顿号或逗号分开">
+                <Input
+                  value={goods}
+                  onChange={(e) => setGoods(e.target.value)}
+                  placeholder="例如：Claude 官key、Outlook"
+                />
+              </Field>
+            </>
+          )}
         </div>
 
         <DialogFooter>

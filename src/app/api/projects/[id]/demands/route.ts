@@ -18,10 +18,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   const project = await prisma.project.findUnique({
     where: { id: projectId },
-    select: { id: true, enableDemands: true },
+    select: { id: true },
   });
   if (!project) return notFound("项目不存在");
-  if (!project.enableDemands) return badRequest("该项目未启用甲方需求清单");
 
   const items = await prisma.projectDemand.findMany({
     where: { projectId, deletedAt: null },
@@ -41,15 +40,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const project = await prisma.project.findUnique({
     where: { id: projectId },
-    select: { id: true, enableDemands: true },
+    select: { id: true },
   });
   if (!project) return notFound("项目不存在");
-  if (!project.enableDemands) return badRequest("该项目未启用甲方需求清单");
 
   const body = (await req.json().catch(() => ({}))) as Partial<{
     productId: number | null;
     productName: string;
     spec: string;
+    sellPrice: number;
     quantity: number | null;
     note: string;
     sortOrder: number;
@@ -75,12 +74,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     quantity = q;
   }
 
+  let sellPrice = 0;
+  if (body.sellPrice !== undefined && body.sellPrice !== null) {
+    const p = Number(body.sellPrice);
+    if (!Number.isFinite(p) || p < 0) return badRequest("卖价非法");
+    sellPrice = p;
+  }
+
   const item = await prisma.projectDemand.create({
     data: {
       projectId,
       productId,
       productName,
       spec: body.spec ?? "",
+      sellPrice,
       quantity,
       note: body.note ?? "",
       sortOrder: Number.isFinite(Number(body.sortOrder)) ? Number(body.sortOrder) : 0,

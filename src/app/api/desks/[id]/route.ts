@@ -10,7 +10,7 @@ import {
 } from "@/lib/guard";
 import { DESK_API_KIND, isOneOf, PARTNER_STATUS } from "@/lib/enums";
 import { jsonItem } from "@/lib/mask";
-import { DESK_INCLUDE, resolveLines } from "@/lib/partner";
+import { DESK_INCLUDE, parseProjectIds, replaceDeskProjects, resolveLines } from "@/lib/partner";
 import { ROLES } from "@/lib/rbac";
 
 export const runtime = "nodejs";
@@ -23,9 +23,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   if (!id) return badRequest("id 非法");
 
   const item = await prisma.desk.findUnique({ where: { id }, include: DESK_INCLUDE });
-  if (!item) return notFound("台子不存在");
+  if (!item) return notFound("需求不存在");
   if (g.session.role === ROLES.SALES && item.ownerId !== g.session.id) {
-    return forbidden("无权查看他人的台子");
+    return forbidden("无权查看他人的需求");
   }
 
   return jsonItem("desk", g.session.role, item);
@@ -38,16 +38,20 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const id = parseId((await ctx.params).id);
   if (!id) return badRequest("id 非法");
 
-  const existing = await prisma.desk.findUnique({ where: { id } });
-  if (!existing) return notFound("台子不存在");
+  const existing = await prisma.desk.findUnique({
+    where: { id },
+    include: { projects: { select: { projectId: true } } },
+  });
+  if (!existing) return notFound("需求不存在");
   if (g.session.role === ROLES.SALES && existing.ownerId !== g.session.id) {
-    return forbidden("无权修改他人的台子");
+    return forbidden("无权修改他人的需求");
   }
 
   const body = (await req.json().catch(() => ({}))) as Partial<{
     name: string;
     projectId: number;
-    ownerId: number;
+    projectIds: number[];
+    ownerName: string;
     contact: string;
     demand: string;
     status: string;
@@ -61,10 +65,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const data: Record<string, unknown> = {};
   if (body.name !== undefined) {
     const v = body.name.trim();
-    if (!v) return badRequest("台子名称不能为空");
+    if (!v) return badRequest("需求名称不能为空");
     data.name = v;
   }
-  if (body.projectId !== undefined) data.projectId = Number(body.projectId);
+  if (body.ownerName !== undefined) data.ownerName = body.ownerName.trim();
   if (body.contact !== undefined) data.contact = body.contact;
   if (body.baseUrl !== undefined) data.baseUrl = body.baseUrl.trim();
   if (body.apiKind !== undefined) {
@@ -78,20 +82,24 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     if (!isOneOf(PARTNER_STATUS, body.status)) return badRequest("状态非法");
     data.status = body.status;
   }
-  // 转派归属销售只有财务/管理员能做
-  if (body.ownerId !== undefined && g.session.role !== ROLES.SALES) {
-    data.ownerId = Number(body.ownerId);
+  const syncProjects = body.projectIds !== undefined || body.projectId !== undefined;
+  const projectIds = syncProjects
+    ? parseProjectIds(body.projectIds, body.projectId ?? null)
+    : existing.projects.map((item) => item.projectId);
+
+  if (syncProjects && projectIds.length) {
+    const count = await prisma.project.count({ where: { id: { in: projectIds } } });
+    if (count !== projectIds.length) return badRequest("部分项目不存在");
   }
 
-  // 明细行整体替换: 前端是一张表格, 逐行 diff 的复杂度远超收益,
-  // 而且删中间行 + 改单价这类组合用 diff 很容易出错。
   const item = await prisma.$transaction(async (tx) => {
-    const lines = body.items === undefined ? null : await resolveLines(tx, body.items, Number(body.projectId ?? existing.projectId));
+    const lines = body.items === undefined ? null : await resolveLines(tx, body.items, projectIds[0] ?? null);
     if (typeof lines === "string") throw new Error(lines);
     if (lines !== null) {
       await tx.deskItem.deleteMany({ where: { deskId: id } });
       data.items = { create: lines.map(({ apiKey: _apiKey, ...line }) => line) };
     }
+    if (syncProjects) await replaceDeskProjects(tx, id, projectIds);
     return tx.desk.update({ where: { id }, data, include: DESK_INCLUDE });
   });
 
@@ -106,9 +114,9 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
   if (!id) return badRequest("id 非法");
 
   const existing = await prisma.desk.findUnique({ where: { id } });
-  if (!existing) return notFound("台子不存在");
+  if (!existing) return notFound("需求不存在");
   if (g.session.role === ROLES.SALES && existing.ownerId !== g.session.id) {
-    return forbidden("无权删除他人的台子");
+    return forbidden("无权删除他人的需求");
   }
 
   await prisma.desk.update({ where: { id }, data: { deletedAt: new Date() } });

@@ -38,7 +38,6 @@ export default function ProjectDialog({
 }) {
   const [name, setName] = useState("");
   const [status, setStatus] = useState<ProjectStatus>("active");
-  const [ownerName, setOwnerName] = useState("");
   const [description, setDescription] = useState("");
   const [enableDemands, setEnableDemands] = useState(false);
   const [enableBatches, setEnableBatches] = useState(false);
@@ -49,7 +48,6 @@ export default function ProjectDialog({
     if (!open) return;
     setName(initial?.name ?? "");
     setStatus(initial?.status ?? "active");
-    setOwnerName(initial?.ownerName || initial?.owner?.displayName || "");
     setDescription(initial?.description ?? "");
     setEnableDemands(Boolean(initial?.enableDemands));
     setEnableBatches(Boolean(initial?.enableBatches));
@@ -61,7 +59,6 @@ export default function ProjectDialog({
     const payload = {
       name: name.trim(),
       status,
-      ownerName: ownerName.trim(),
       description,
       enableDemands,
       enableBatches,
@@ -117,13 +114,6 @@ export default function ProjectDialog({
                   ))}
                 </SelectContent>
               </Select>
-            </Field>
-            <Field label="负责人">
-              <Input
-                value={ownerName}
-                onChange={(e) => setOwnerName(e.target.value)}
-                placeholder="填写负责人"
-              />
             </Field>
           </div>
 

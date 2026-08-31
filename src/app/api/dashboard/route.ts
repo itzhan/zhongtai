@@ -128,7 +128,7 @@ export async function GET(req: Request) {
       where: mine,
       include: {
         owner: { select: { displayName: true } },
-        project: { select: { name: true } },
+        projects: { include: { project: { select: { name: true } } } },
         items: { select: { quantity: true, unitPrice: true } },
       },
       orderBy: { id: "desc" },
@@ -137,8 +137,8 @@ export async function GET(req: Request) {
     blocks.desks = desks.slice(0, 8).map((d) => ({
       id: d.id,
       name: d.name,
-      owner: d.owner.displayName,
-      project: d.project.name,
+      owner: d.ownerName || d.owner.displayName,
+      project: d.projects.map((link) => link.project.name).join(" / ") || "-",
       itemCount: d.items.length,
       amount: d.items.reduce((x, i) => x + i.quantity * i.unitPrice, 0),
     }));

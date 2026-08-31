@@ -21,6 +21,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Field } from "@/components/ui/field";
@@ -45,7 +48,7 @@ import {
 import { useList } from "@/hooks/use-list";
 import { api, mutate } from "@/lib/api-client";
 import { fmtDate, fmtDay } from "@/lib/format";
-import { ALL_ROLES, ROLE_LABEL, ROLES, type Role } from "@/lib/rbac";
+import { ASSIGNABLE_ROLES, ROLE_LABEL, ROLES, type Role } from "@/lib/rbac";
 
 interface ManagedUser {
   id: number;
@@ -382,27 +385,10 @@ function UsersPanel() {
                           <span className="text-[11px] text-muted-foreground ml-1.5">（我）</span>
                         )}
                       </TableCell>
-                      <TableCell onClick={(event) => event.stopPropagation()}>
-                        {/* 角色用下拉直改, 不必进编辑弹窗 */}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild disabled={isSelf}>
-                            <button className="disabled:cursor-default">
-                              <Badge variant={u.role === "admin" ? "default" : "secondary"}>
-                                {ROLE_LABEL[u.role]}
-                              </Badge>
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            {ALL_ROLES.map((r) => (
-                              <DropdownMenuItem
-                                key={r}
-                                onClick={() => r !== u.role && patchUser(u, { role: r })}
-                              >
-                                {ROLE_LABEL[r]}
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                      <TableCell>
+                        <Badge variant={u.role === "admin" ? "default" : "secondary"}>
+                          {ROLE_LABEL[u.role]}
+                        </Badge>
                       </TableCell>
                       <TableCell onClick={(event) => event.stopPropagation()}>
                         <Switch
@@ -422,6 +408,22 @@ function UsersPanel() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            {!isSelf && (
+                              <DropdownMenuSub>
+                                <DropdownMenuSubTrigger>修改角色</DropdownMenuSubTrigger>
+                                <DropdownMenuSubContent>
+                                  {ASSIGNABLE_ROLES.map((r) => (
+                                    <DropdownMenuItem
+                                      key={r}
+                                      disabled={u.role === r}
+                                      onClick={() => patchUser(u, { role: r })}
+                                    >
+                                      {ROLE_LABEL[r]}
+                                    </DropdownMenuItem>
+                                  ))}
+                                </DropdownMenuSubContent>
+                              </DropdownMenuSub>
+                            )}
                             <DropdownMenuItem onClick={() => setResetting(u)}>
                               <KeyRound size={14} />
                               重置密码
@@ -485,7 +487,7 @@ function NewUserDialog({
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<Role>("sales");
+  const [role, setRole] = useState<Role>("finance");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -493,7 +495,7 @@ function NewUserDialog({
     setUsername("");
     setDisplayName("");
     setPassword("");
-    setRole("sales");
+    setRole("finance");
   }, [open]);
 
   async function save() {
@@ -553,7 +555,7 @@ function NewUserDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {ALL_ROLES.map((r) => (
+                {ASSIGNABLE_ROLES.map((r) => (
                   <SelectItem key={r} value={r}>
                     {ROLE_LABEL[r]}
                   </SelectItem>

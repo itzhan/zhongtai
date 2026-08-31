@@ -5,9 +5,11 @@ import {
   canUseAction,
   isAssistantAction,
   isFinanceKind,
+  normalizeSupplierCategories,
   type AssistantAction,
 } from "@/lib/ai-actions";
-import { DESK_INCLUDE, resolveLines, SUPPLIER_INCLUDE } from "@/lib/partner";
+import { COST_SOURCE, isOneOf, serializeSupplierCategories } from "@/lib/enums";
+import { DESK_INCLUDE, SUPPLIER_INCLUDE } from "@/lib/partner";
 import { ROLES, type Role } from "@/lib/rbac";
 import { todayStr } from "@/lib/format";
 
@@ -16,7 +18,7 @@ export const runtime = "nodejs";
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function POST(req: Request) {
-  const g = await requireRoleFresh(ROLES.SALES, ROLES.RESOURCE, ROLES.FINANCE);
+  const g = await requireRoleFresh(ROLES.FINANCE);
   if (!g.ok) return g.res;
 
   const body = (await req.json().catch(() => ({}))) as {
@@ -58,10 +60,6 @@ async function applyOne(
 ) {
   switch (action) {
     case "bookkeep": {
-      if (session.role === ROLES.SALES && raw.kind !== "income") throw new Error("销售只能记收入");
-      if (session.role === ROLES.RESOURCE && raw.kind !== "cost") {
-        throw new Error("资源管理员只能记成本");
-      }
       if (!isFinanceKind(raw.kind)) throw new Error("方向非法");
       const projectId = Number(raw.projectId);
       if (!projectId) throw new Error("项目无效");
@@ -74,6 +72,21 @@ async function applyOne(
       if (!(await prisma.project.findFirst({ where: { id: projectId, deletedAt: null } }))) {
         throw new Error("项目不存在");
       }
+
+      let costSource = "self";
+      let supplierId: number | null = null;
+      if (raw.kind === "cost") {
+        costSource = String(raw.costSource ?? "self");
+        if (!isOneOf(COST_SOURCE, costSource)) throw new Error("成本类型非法");
+        if (costSource === "supplier") {
+          const sid = Number(raw.supplierId);
+          if (!sid) throw new Error("请选择供应商");
+          const supplier = await prisma.supplier.findUnique({ where: { id: sid }, select: { id: true } });
+          if (!supplier) throw new Error("供应商不存在");
+          supplierId = sid;
+        }
+      }
+
       return prisma.financeEntry.create({
         data: {
           projectId,
@@ -81,10 +94,15 @@ async function applyOne(
           amount,
           note,
           entryDate,
+          costSource,
+          supplierId,
           createdById: session.id,
           creatorName: session.displayName,
         },
-        include: { project: { select: { id: true, code: true, name: true } } },
+        include: {
+          project: { select: { id: true, code: true, name: true } },
+          supplier: { select: { id: true, name: true } },
+        },
       });
     }
     case "create_project": {
@@ -96,204 +114,46 @@ async function applyOne(
           code: `PROJECT-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           name,
           status: String(raw.status || "active"),
-          ownerName: String(raw.ownerName ?? "").trim(),
           description: String(raw.description ?? ""),
-          enableDemands: Boolean(raw.enableDemands),
-          enableBatches: Boolean(raw.enableBatches),
         },
-      });
-    }
-    case "create_product": {
-      if (session.role !== ROLES.ADMIN) throw new Error("仅管理员可创建产品");
-      const name = String(raw.name ?? "").trim();
-      if (!name) throw new Error("产品名称不能为空");
-      let projectId: number | null = raw.projectId == null ? null : Number(raw.projectId);
-      if (
-        projectId &&
-        !(await prisma.project.findFirst({ where: { id: projectId, deletedAt: null } }))
-      ) {
-        projectId = null;
-      }
-      return prisma.product.create({
-        data: {
-          name,
-          status: String(raw.status ?? "").trim() || null,
-          capacity: String(raw.capacity ?? "").trim() || null,
-          projectId,
-          notes: String(raw.notes ?? ""),
-        },
-        include: { project: { select: { id: true, code: true, name: true } } },
       });
     }
     case "create_desk": {
-      if (session.role !== ROLES.ADMIN && session.role !== ROLES.SALES) {
-        throw new Error("无权创建台子");
-      }
       const name = String(raw.name ?? "").trim();
-      if (!name) throw new Error("台子名称不能为空");
-      const projectId = Number(raw.projectId);
-      if (!projectId) throw new Error("请指定项目");
-      if (!(await prisma.project.findFirst({ where: { id: projectId, deletedAt: null } }))) {
-        throw new Error("项目不存在");
-      }
-      const rawLines = Array.isArray(raw.items)
-        ? (raw.items as { productName?: string; unitPrice?: number; note?: string }[])
-        : [];
-      const lines = await resolveLines(
-        prisma,
-        rawLines.map((l) => ({
-          productName: l.productName,
-          unitPrice: Number(l.unitPrice) || 0,
-          note: l.note,
-        })),
-        projectId,
-      );
-      if (typeof lines === "string") throw new Error(lines);
+      if (!name) throw new Error("需求名称不能为空");
+      const projectIds = Array.isArray(raw.projectIds)
+        ? raw.projectIds.map(Number).filter((n) => Number.isInteger(n) && n > 0)
+        : raw.projectId
+          ? [Number(raw.projectId)]
+          : [];
+      if (!projectIds.length) throw new Error("请指定所属项目");
+      const count = await prisma.project.count({ where: { id: { in: projectIds } } });
+      if (count !== projectIds.length) throw new Error("部分项目不存在");
       return prisma.desk.create({
         data: {
           name,
           ownerId: session.id,
-          projectId,
-          baseUrl: String(raw.baseUrl ?? ""),
-          demand: String(raw.demand ?? ""),
+          ownerName: String(raw.ownerName ?? "").trim(),
           status: String(raw.status || "active"),
-          notes: String(raw.notes ?? ""),
-          items: { create: lines.map(({ apiKey: _a, ...line }) => line) },
+          projects: { create: projectIds.map((projectId) => ({ projectId })) },
         },
         include: DESK_INCLUDE,
       });
     }
     case "create_supplier": {
-      if (session.role !== ROLES.ADMIN && session.role !== ROLES.RESOURCE) {
-        throw new Error("无权创建供货方");
-      }
       const name = String(raw.name ?? "").trim();
-      if (!name) throw new Error("供货方名称不能为空");
-      const projectId = Number(raw.projectId);
-      if (!projectId) throw new Error("请指定项目");
-      if (!(await prisma.project.findFirst({ where: { id: projectId, deletedAt: null } }))) {
-        throw new Error("项目不存在");
-      }
-      const rawLines = Array.isArray(raw.items)
-        ? (raw.items as {
-            productName?: string;
-            unitPrice?: number;
-            apiKey?: string;
-            note?: string;
-          }[])
-        : [];
-      const lines = await resolveLines(
-        prisma,
-        rawLines.map((l) => ({
-          productName: l.productName,
-          unitPrice: Number(l.unitPrice) || 0,
-          apiKey: l.apiKey,
-          note: l.note,
-        })),
-        projectId,
-      );
-      if (typeof lines === "string") throw new Error(lines);
+      if (!name) throw new Error("供应商名称不能为空");
+      const categories = normalizeSupplierCategories(raw.category);
+      if (!categories.length) throw new Error("请选择业务分类");
       return prisma.supplier.create({
         data: {
           name,
-          ownerId: session.id,
-          projectId,
-          baseUrl: String(raw.baseUrl ?? ""),
-          channel: String(raw.channel ?? ""),
-          status: String(raw.status || "active"),
-          notes: String(raw.notes ?? ""),
-          items: { create: lines },
+          owner: { connect: { id: session.id } },
+          wechat: String(raw.wechat ?? "").trim(),
+          goods: String(raw.goods ?? "").trim(),
+          category: serializeSupplierCategories(categories),
         },
         include: SUPPLIER_INCLUDE,
-      });
-    }
-    case "create_source": {
-      if (session.role !== ROLES.ADMIN && session.role !== ROLES.RESOURCE) {
-        throw new Error("无权创建资源来源");
-      }
-      const name = String(raw.name ?? "").trim();
-      if (!name) throw new Error("来源名称不能为空");
-      return prisma.resourceSource.create({
-        data: {
-          name,
-          channel: String(raw.channel ?? ""),
-          kinds: String(raw.kinds ?? ""),
-          contact: String(raw.contact ?? ""),
-          emailPrice: Number(raw.emailPrice) || 0,
-          proxyPrice: Number(raw.proxyPrice) || 0,
-          cardPrice: Number(raw.cardPrice) || 0,
-          priceInfo: String(raw.priceInfo ?? ""),
-          active: raw.active === undefined ? true : Boolean(raw.active),
-          notes: String(raw.notes ?? ""),
-        },
-      });
-    }
-    case "create_card": {
-      if (session.role !== ROLES.ADMIN && session.role !== ROLES.RESOURCE) {
-        throw new Error("无权创建卡资源");
-      }
-      const cardNo = String(raw.cardNo ?? "").trim();
-      if (!cardNo) throw new Error("卡号不能为空");
-      return prisma.cardResource.create({
-        data: {
-          cardNo,
-          cvv: String(raw.cvv ?? ""),
-          expiry: String(raw.expiry ?? ""),
-          holder: String(raw.holder ?? ""),
-          amount: Number(raw.amount) || 0,
-          usage: String(raw.usage ?? ""),
-          status: String(raw.status || "available"),
-          sourceId: raw.sourceId == null ? null : Number(raw.sourceId),
-          projectId: raw.projectId == null ? null : Number(raw.projectId),
-          notes: String(raw.notes ?? ""),
-        },
-      });
-    }
-    case "create_proxy": {
-      if (session.role !== ROLES.ADMIN && session.role !== ROLES.RESOURCE) {
-        throw new Error("无权创建代理");
-      }
-      const host = String(raw.host ?? "").trim();
-      const port = Number(raw.port);
-      if (!host) throw new Error("地址不能为空");
-      if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("端口非法");
-      const ipType = String(raw.ipType || "static");
-      return prisma.proxyResource.create({
-        data: {
-          protocol: String(raw.protocol || "socks"),
-          ipType,
-          host,
-          port,
-          username: String(raw.username ?? ""),
-          password: String(raw.password ?? ""),
-          region: String(raw.region ?? ""),
-          rotateUrl: ipType === "dynamic" ? String(raw.rotateUrl ?? "") : "",
-          status: String(raw.status || "available"),
-          sourceId: raw.sourceId == null ? null : Number(raw.sourceId),
-          projectId: raw.projectId == null ? null : Number(raw.projectId),
-          notes: String(raw.notes ?? ""),
-        },
-      });
-    }
-    case "create_email": {
-      if (session.role !== ROLES.ADMIN && session.role !== ROLES.RESOURCE) {
-        throw new Error("无权创建邮箱");
-      }
-      const address = String(raw.address ?? "").trim();
-      if (!address) throw new Error("邮箱不能为空");
-      const exists = await prisma.emailResource.findUnique({ where: { address } });
-      if (exists) throw new Error(`邮箱已存在: ${address}`);
-      return prisma.emailResource.create({
-        data: {
-          address,
-          password: String(raw.password ?? ""),
-          providerKey: String(raw.providerKey || "mock"),
-          usage: String(raw.usage ?? ""),
-          status: String(raw.status || "available"),
-          sourceId: raw.sourceId == null ? null : Number(raw.sourceId),
-          projectId: raw.projectId == null ? null : Number(raw.projectId),
-          notes: String(raw.notes ?? ""),
-        },
       });
     }
   }

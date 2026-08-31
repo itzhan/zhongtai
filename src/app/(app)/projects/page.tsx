@@ -107,7 +107,7 @@ export default function ProjectsPage() {
             onRetry={reload}
           >
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {items.map((p) => <Card key={p.id} className="h-full"><CardHeader className="pb-3"><div className="flex items-start gap-2"><div className="min-w-0 flex-1"><CardTitle className="text-base"><Link href={`/projects/${p.id}`} className="hover:text-primary">{p.name}</Link></CardTitle><p className="mt-1 text-xs text-muted-foreground">负责人：{p.ownerName || p.owner?.displayName || "-"}</p></div><Badge variant={PROJECT_STATUS_VARIANT[p.status]}>{PROJECT_STATUS_LABEL[p.status]}</Badge>
+              {items.map((p) => <Card key={p.id} className="h-full"><CardHeader className="pb-3"><div className="flex items-start gap-2"><div className="min-w-0 flex-1"><CardTitle className="text-base"><Link href={`/projects/${p.id}`} className="hover:text-primary">{p.name}</Link></CardTitle><p className="mt-1 text-xs text-muted-foreground">{p.code}</p></div><Badge variant={PROJECT_STATUS_VARIANT[p.status]}>{PROJECT_STATUS_LABEL[p.status]}</Badge>
                       <RoleGate roles={ADMIN_ONLY}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -148,7 +148,7 @@ export default function ProjectsPage() {
         open={deleting !== null}
         onOpenChange={(v) => !v && setDeleting(null)}
         title={`删除项目「${deleting?.name ?? ""}」？`}
-        description="仅当项目下没有台子、供货方和采购记录时才能移入回收站。"
+        description="仅当项目下没有台子和采购记录时才能移入回收站。"
         onConfirm={async () => {
           if (!deleting) return;
           const ok = await mutate(() => api.del(`/api/projects/${deleting.id}`), {
