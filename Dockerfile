@@ -1,10 +1,15 @@
 # syntax=docker/dockerfile:1.7
 
 FROM node:22-slim AS base
-RUN apt-get update \
- && apt-get install -y --no-install-recommends openssl ca-certificates \
- && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+  if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+    sed -i 's|http://deb.debian.org/debian|http://mirrors.aliyun.com/debian|g; s|http://deb.debian.org/debian-security|http://mirrors.aliyun.com/debian-security|g' /etc/apt/sources.list.d/debian.sources; \
+  fi; \
+  apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV npm_config_registry=https://registry.npmmirror.com
 
 FROM base AS deps
 WORKDIR /app
