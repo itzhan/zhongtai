@@ -58,23 +58,34 @@ import { api, mutate } from "@/lib/api-client";
 import {
   COST_SOURCE,
   COST_SOURCE_LABEL,
+  COST_SOURCE_VARIANT,
   DESK_API_KIND,
   DESK_API_KIND_LABEL,
   DESK_API_KIND_VARIANT,
   FINANCE_KIND,
   FINANCE_KIND_LABEL,
   FINANCE_KIND_VARIANT,
+  FUND_CURRENCY,
+  FUND_CURRENCY_LABEL,
+  PAY_CHANNEL,
+  PAY_CHANNEL_LABEL,
+  PAY_CHANNEL_VARIANT,
   PROJECT_STATUS_LABEL,
   PROJECT_STATUS_VARIANT,
+  isOneOf,
   type CostSource,
   type DeskApiKind,
   type FinanceKind,
+  type FundCurrency,
+  type PayChannel,
+  type PartyKind,
   type ProjectStatus,
 } from "@/lib/enums";
-import { fmtMoneyShort, todayStr } from "@/lib/format";
+import PartyPicker from "@/components/PartyPicker";
+import { fmtLedgerAmount, fmtMoneyShort, partyLabel, todayStr } from "@/lib/format";
 import { ROLES } from "@/lib/rbac";
 import type { Desk } from "../../desks/types";
-import { useSupplierOptions } from "@/hooks/use-options";
+import { useMemberOptions, usePartnerOptions, useSupplierOptions } from "@/hooks/use-options";
 
 interface Demand {
   id: number;
@@ -101,6 +112,14 @@ interface Entry {
   id: number;
   kind: FinanceKind;
   amount: number | null;
+  currency?: string;
+  channel?: string;
+  fromKind?: string;
+  fromId?: number | null;
+  fromName?: string;
+  toKind?: string;
+  toId?: number | null;
+  toName?: string;
   note: string;
   entryDate: string;
   creatorName: string;
@@ -394,9 +413,11 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                       <TableRow>
                         <TableHead>日期</TableHead>
                         <TableHead>方向</TableHead>
-                        <TableHead>来源</TableHead>
+                        <TableHead>转出</TableHead>
+                        <TableHead>转入</TableHead>
+                        <TableHead>渠道</TableHead>
                         <TableHead className="text-right">金额</TableHead>
-                        <TableHead>介绍</TableHead>
+                        <TableHead>用途</TableHead>
                         <TableHead>录入人</TableHead>
                         <TableHead className="w-10" />
                       </TableRow>
@@ -408,21 +429,31 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                           <TableCell>
                             <Badge variant={FINANCE_KIND_VARIANT[e.kind]}>{FINANCE_KIND_LABEL[e.kind]}</Badge>
                           </TableCell>
-                          <TableCell className="text-muted-foreground text-sm">
-                            {e.kind === "cost"
-                              ? e.costSource === "supplier"
-                                ? e.supplier?.name || "供应商"
-                                : "自产"
-                              : "-"}
+                          <TableCell className="text-sm">
+                            {partyLabel(e.fromKind ?? "", e.fromName ?? "", e.fromId)}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {partyLabel(e.toKind ?? "", e.toName ?? "", e.toId)}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-1">
+                              {isOneOf(PAY_CHANNEL, e.channel) ? (
+                                <Badge variant={PAY_CHANNEL_VARIANT[e.channel]}>
+                                  {PAY_CHANNEL_LABEL[e.channel]}
+                                </Badge>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell
                             className={`text-right tabular-nums font-medium ${
                               e.kind === "income" ? "text-success" : "text-warning"
                             }`}
                           >
-                            {e.amount === null ? "···" : fmtMoneyShort(e.amount)}
+                            {e.amount === null ? "···" : fmtLedgerAmount(e.amount, e.currency)}
                           </TableCell>
-                          <TableCell className="max-w-[280px] truncate">{e.note || "-"}</TableCell>
+                          <TableCell className="max-w-[220px] truncate">{e.note || "-"}</TableCell>
                           <TableCell className="text-muted-foreground">
                             {e.creatorName || e.createdBy?.displayName || "-"}
                           </TableCell>
@@ -748,10 +779,18 @@ function EntryDialog({
 }) {
   const defaultKind: FinanceKind = role === ROLES.RESOURCE ? "cost" : role === ROLES.SALES ? "income" : "cost";
   const suppliers = useSupplierOptions(open);
+  const members = useMemberOptions(open);
+  const partners = usePartnerOptions(open);
 
   const [kind, setKind] = useState<FinanceKind>(defaultKind);
   const [costSource, setCostSource] = useState<CostSource>("self");
   const [supplierId, setSupplierId] = useState("");
+  const [fromKind, setFromKind] = useState<PartyKind>("member");
+  const [fromId, setFromId] = useState<number | null>(null);
+  const [toKind, setToKind] = useState<PartyKind>("partner");
+  const [toId, setToId] = useState<number | null>(null);
+  const [currency, setCurrency] = useState<FundCurrency>("cny");
+  const [channel, setChannel] = useState<PayChannel | "">("");
   const [amount, setAmount] = useState("");
   const [entryDate, setEntryDate] = useState("");
   const [note, setNote] = useState("");
@@ -765,9 +804,16 @@ function EntryDialog({
 
   useEffect(() => {
     if (!open) return;
-    setKind(initial?.kind ?? defaultKind);
+    const nextKind = initial?.kind ?? defaultKind;
+    setKind(nextKind);
     setCostSource((initial?.costSource as CostSource) || "self");
     setSupplierId(initial?.supplierId ? String(initial.supplierId) : initial?.supplier ? String(initial.supplier.id) : "");
+    setFromKind((initial?.fromKind as PartyKind) || (nextKind === "income" ? "partner" : "member"));
+    setFromId(initial?.fromId ?? null);
+    setToKind((initial?.toKind as PartyKind) || (nextKind === "income" ? "member" : "partner"));
+    setToId(initial?.toId ?? null);
+    setCurrency((initial?.currency as FundCurrency) || "cny");
+    setChannel((initial?.channel as PayChannel) || "");
     setAmount(initial?.amount != null ? String(initial.amount) : "");
     setEntryDate(initial?.entryDate ?? todayStr());
     setNote(initial?.note ?? "");
@@ -777,7 +823,10 @@ function EntryDialog({
     const amt = Number(amount);
     if (!Number.isFinite(amt) || amt < 0) return toast.warning("金额非法");
     if (!entryDate) return toast.warning("请选择日期");
-    if (!note.trim()) return toast.warning("请填写介绍");
+    if (!note.trim()) return toast.warning("请填写这笔钱是干啥的");
+    if (!fromId) return toast.warning("请选择转出人");
+    if (!toId) return toast.warning("请选择转入人");
+    if (!channel) return toast.warning("请选择转账渠道");
     if (kind === "cost" && costSource === "supplier" && !supplierId) {
       return toast.warning("请选择供应商");
     }
@@ -787,6 +836,12 @@ function EntryDialog({
       amount: amt,
       entryDate,
       note: note.trim(),
+      currency,
+      channel,
+      fromKind,
+      fromId,
+      toKind,
+      toId,
       costSource: kind === "cost" ? costSource : "self",
       supplierId: kind === "cost" && costSource === "supplier" ? Number(supplierId) : null,
     };
@@ -811,7 +866,7 @@ function EntryDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{initial ? "编辑记录" : "新增记录"}</DialogTitle>
         </DialogHeader>
@@ -831,9 +886,31 @@ function EntryDialog({
               </Tabs>
             )}
           </Field>
+          <PartyPicker
+            label="转出人"
+            kind={fromKind}
+            id={fromId}
+            members={members}
+            partners={partners}
+            onChange={(k, id) => {
+              setFromKind(k);
+              setFromId(id);
+            }}
+          />
+          <PartyPicker
+            label="转入人"
+            kind={toKind}
+            id={toId}
+            members={members}
+            partners={partners}
+            onChange={(k, id) => {
+              setToKind(k);
+              setToId(id);
+            }}
+          />
           {kind === "cost" && (
             <>
-              <Field label="成本类型" required>
+              <Field label="成本类型">
                 <Select value={costSource} onValueChange={(v) => setCostSource(v as CostSource)}>
                   <SelectTrigger>
                     <SelectValue />
@@ -881,8 +958,38 @@ function EntryDialog({
               <Input type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} />
             </Field>
           </div>
-          <Field label="介绍" required hint="本次花销或收入说明">
-            <Textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="例如：上游结算 200 刀 / 甲方回款" />
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="币种" required>
+              <Select value={currency} onValueChange={(v) => setCurrency(v as FundCurrency)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FUND_CURRENCY.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {FUND_CURRENCY_LABEL[c]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="渠道" required>
+              <Select value={channel || undefined} onValueChange={(v) => setChannel(v as PayChannel)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="支付宝 / 微信 / 银行卡" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAY_CHANNEL.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {PAY_CHANNEL_LABEL[c]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          </div>
+          <Field label="这笔钱是干啥的" required>
+            <Textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="例如：上游结算 / 甲方回款" />
           </Field>
         </div>
         <DialogFooter>

@@ -9,7 +9,7 @@ const { SALES, PRODUCTION, FINANCE, RESOURCE } = ROLES;
 export type FieldKey = "price" | "cost" | "profit" | "secret";
 
 export const FIELDS: Record<FieldKey, readonly Role[]> = {
-  /// 台子卖价 / 销售额
+  /// 台子/客户卖价 / 销售额
   price: [SALES, FINANCE],
   /// 进货价 / 采购金额 / 资源消耗金额
   cost: [RESOURCE, FINANCE],

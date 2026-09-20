@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { badRequest, requireRole, requireRoleFresh } from "@/lib/guard";
+import { parseTransfer } from "@/lib/ledger";
 import { jsonItem } from "@/lib/mask";
 import { ROLES } from "@/lib/rbac";
 
@@ -28,6 +29,14 @@ function toPurchaseShape(row: {
   entryDate: string;
   createdById: number | null;
   creatorName: string;
+  currency?: string;
+  channel?: string;
+  fromKind?: string;
+  fromId?: number | null;
+  fromName?: string;
+  toKind?: string;
+  toId?: number | null;
+  toName?: string;
   project: { id: number; code: string; name: string } | null;
   createdBy: { id: number; displayName: string } | null;
 }) {
@@ -48,11 +57,18 @@ function toPurchaseShape(row: {
     project: row.project,
     purchaser: row.createdBy ?? { id: 0, displayName: row.creatorName || "-" },
     source: null as { id: number; name: string } | null,
-    /// 原生流水字段, 详情页/新 UI 可直接用
     entryKind: "cost" as const,
     amount: row.amount,
     note: row.note,
     entryDate: row.entryDate,
+    currency: row.currency ?? "cny",
+    channel: row.channel ?? "",
+    fromKind: row.fromKind ?? "",
+    fromId: row.fromId ?? null,
+    fromName: row.fromName ?? "",
+    toKind: row.toKind ?? "",
+    toId: row.toId ?? null,
+    toName: row.toName ?? "",
   };
 }
 
@@ -140,6 +156,9 @@ export async function POST(req: Request) {
   const note = (body.note ?? body.detail ?? body.content ?? "").trim();
   if (!note) return badRequest("请填写花销说明");
 
+  const transfer = await parseTransfer(body as Record<string, unknown>, true);
+  if ("error" in transfer) return badRequest(transfer.error);
+
   const creatorName =
     (body.purchaserName ?? "").trim() || g.session.displayName;
 
@@ -152,6 +171,7 @@ export async function POST(req: Request) {
       entryDate,
       createdById: g.session.id,
       creatorName,
+      ...transfer,
     },
     include: INCLUDE,
   });

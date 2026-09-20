@@ -8,6 +8,7 @@ import {
   normalizeSupplierCategories,
   type AssistantAction,
 } from "@/lib/ai-actions";
+import { parseTransfer } from "@/lib/ledger";
 import { COST_SOURCE, isOneOf, serializeSupplierCategories } from "@/lib/enums";
 import { DESK_INCLUDE, SUPPLIER_INCLUDE } from "@/lib/partner";
 import { ROLES, type Role } from "@/lib/rbac";
@@ -87,6 +88,9 @@ async function applyOne(
         }
       }
 
+      const transfer = await parseTransfer(raw, true);
+      if ("error" in transfer) throw new Error(transfer.error);
+
       return prisma.financeEntry.create({
         data: {
           projectId,
@@ -98,6 +102,7 @@ async function applyOne(
           supplierId,
           createdById: session.id,
           creatorName: session.displayName,
+          ...transfer,
         },
         include: {
           project: { select: { id: true, code: true, name: true } },

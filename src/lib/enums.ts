@@ -105,6 +105,55 @@ export const COST_SOURCE_LABEL: Record<CostSource, string> = {
   self: "自产",
   supplier: "供应商",
 };
+export const COST_SOURCE_VARIANT: Record<CostSource, BadgeVariant> = {
+  self: "secondary",
+  supplier: "info",
+};
+
+/// 团队资金类型
+export const FUND_KIND = ["held", "receivable"] as const;
+export type FundKind = (typeof FUND_KIND)[number];
+export const FUND_KIND_LABEL: Record<FundKind, string> = {
+  held: "所持资金",
+  receivable: "未结账单",
+};
+export const FUND_KIND_VARIANT: Record<FundKind, BadgeVariant> = {
+  held: "success",
+  receivable: "warning",
+};
+
+export const FUND_CURRENCY = ["cny", "usdt"] as const;
+export type FundCurrency = (typeof FUND_CURRENCY)[number];
+export const FUND_CURRENCY_LABEL: Record<FundCurrency, string> = {
+  cny: "人民币",
+  usdt: "U",
+};
+export const FUND_CURRENCY_VARIANT: Record<FundCurrency, BadgeVariant> = {
+  cny: "secondary",
+  usdt: "info",
+};
+
+/// 转账双方类型
+export const PARTY_KIND = ["member", "partner"] as const;
+export type PartyKind = (typeof PARTY_KIND)[number];
+export const PARTY_KIND_LABEL: Record<PartyKind, string> = {
+  member: "团队成员",
+  partner: "合作伙伴",
+};
+
+/// 转账渠道
+export const PAY_CHANNEL = ["alipay", "wechat", "bank"] as const;
+export type PayChannel = (typeof PAY_CHANNEL)[number];
+export const PAY_CHANNEL_LABEL: Record<PayChannel, string> = {
+  alipay: "支付宝",
+  wechat: "微信",
+  bank: "银行卡",
+};
+export const PAY_CHANNEL_VARIANT: Record<PayChannel, BadgeVariant> = {
+  alipay: "info",
+  wechat: "success",
+  bank: "secondary",
+};
 
 /// 供货方业务分类
 export const SUPPLIER_CATEGORY = ["gpt", "claude", "aws", "cardshop"] as const;
@@ -266,6 +315,38 @@ export function parseSupplierCategories(v: unknown): SupplierCategory[] {
 export function serializeSupplierCategories(cats: readonly SupplierCategory[]): string {
   return SUPPLIER_CATEGORY.filter((c) => cats.includes(c)).join(",");
 }
+
+/// 客户资源卖价口径
+export const SELL_MODE = ["discount", "unit"] as const;
+export type SellMode = (typeof SELL_MODE)[number];
+export const SELL_MODE_LABEL: Record<SellMode, string> = {
+  discount: "折扣",
+  unit: "固定单价",
+};
+
+/// 客户资源成本口径
+export const COST_MODE = ["fixed", "api"] as const;
+export type CostMode = (typeof COST_MODE)[number];
+export const COST_MODE_LABEL: Record<CostMode, string> = {
+  fixed: "固定记账",
+  api: "API 自动",
+};
+
+/// 客户资源对应的 sub2 平台，用来拆分消耗
+export const CUSTOMER_PLATFORM = ["openai", "anthropic", "gemini", "grok"] as const;
+export type CustomerPlatform = (typeof CUSTOMER_PLATFORM)[number];
+export const CUSTOMER_PLATFORM_LABEL: Record<CustomerPlatform, string> = {
+  openai: "GPT",
+  anthropic: "Claude",
+  gemini: "Gemini",
+  grok: "Grok",
+};
+export const CUSTOMER_PLATFORM_VARIANT: Record<CustomerPlatform, BadgeVariant> = {
+  openai: "info",
+  anthropic: "purple",
+  gemini: "warning",
+  grok: "secondary",
+};
 
 /// 台子对接的中转 API 分类
 export const DESK_API_KIND = ["none", "newapi", "sub2api"] as const;

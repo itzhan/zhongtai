@@ -9,6 +9,7 @@ const ENTITIES = {
   project: { table: "Project", label: "项目", name: '"name"' },
   product: { table: "Product", label: "产品", name: '"name"' },
   desk: { table: "Desk", label: "需求", name: '"name"' },
+  customer: { table: "Customer", label: "客户", name: '"name"' },
   supplier: { table: "Supplier", label: "供应商", name: '"name"' },
   source: { table: "ResourceSource", label: "资源供应商", name: '"name"' },
   card: { table: "CardResource", label: "卡", name: '"cardNo"' },
@@ -19,6 +20,9 @@ const ENTITIES = {
   request: { table: "ResourceRequest", label: "资源申报", name: '\'资源申报 #\' || "id"' },
   purchase: { table: "Purchase", label: "采购记录", name: '"content"' },
   batch: { table: "ProductionBatch", label: "产出批次", name: '\'产出批次 #\' || "id"' },
+  fund: { table: "CompanyFund", label: "团队资金", name: '"name"' },
+  member: { table: "TeamMember", label: "团队成员", name: '"name"' },
+  partner: { table: "Partner", label: "合作伙伴", name: '"name"' },
 } as const;
 type Entity = keyof typeof ENTITIES;
 

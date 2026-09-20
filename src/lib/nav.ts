@@ -22,7 +22,10 @@ export type IconKey =
   | "assistant"
   | "settings"
   | "monitor"
-  | "schedule";
+  | "schedule"
+  | "wallet"
+  | "customer"
+  | "platform";
 
 export interface NavSubItem {
   href: string;
@@ -56,6 +59,18 @@ export function isNavGroup(e: NavEntry): e is NavGroup {
 
 export const NAV: NavEntry[] = [
   {
+    href: "/funds",
+    label: "团队资金",
+    icon: "wallet",
+    roles: [FINANCE],
+    match: "/funds",
+    sub: [
+      { href: "/funds", label: "资金头寸" },
+      { href: "/funds/members", label: "团队成员" },
+      { href: "/funds/partners", label: "合作伙伴" },
+    ],
+  },
+  {
     href: "/",
     label: "仪表盘",
     icon: "dashboard",
@@ -70,7 +85,7 @@ export const NAV: NavEntry[] = [
         icon: "project",
         roles: [SALES, PRODUCTION, FINANCE, RESOURCE],
       },
-      { href: "/desks", label: "需求管理", icon: "desk", roles: [SALES, FINANCE] },
+      { href: "/customers", label: "客户管理", icon: "customer", roles: [SALES, FINANCE] },
       {
         href: "/assistant",
         label: "AI 助手",
@@ -90,6 +105,7 @@ export const NAV: NavEntry[] = [
   {
     group: "系统",
     items: [
+      { href: "/platform", label: "中台管理", icon: "platform", roles: [RESOURCE, FINANCE] },
       {
         href: "/settings",
         label: "设置",

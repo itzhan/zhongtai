@@ -43,6 +43,7 @@ model User {
   updatedAt    DateTime @updatedAt
 
   ownedDesks          Desk[]               @relation("DeskOwner")
+  ownedCustomers      Customer[]           @relation("CustomerOwner")
   ownedSuppliers      Supplier[]           @relation("SupplierOwner")
   purchases           Purchase[]
   reportedRequests    ResourceRequest[]    @relation("RequestReporter")
@@ -138,11 +139,23 @@ model FinanceEntry {
   /// income 收入 | cost 成本
   kind        String
   amount      Float    @default(0)
-  /// 本次花销/收入介绍
+  /// cny 人民币 | usdt U。利润汇总时 U 按 USDT_CNY_RATE 折人民币
+  currency    String   @default("cny")
+  /// alipay 支付宝 | wechat 微信 | bank 银行卡
+  channel     String   @default("")
+  /// 转出方: member 团队成员 | partner 合作伙伴
+  fromKind    String   @default("")
+  fromId      Int?
+  fromName    String   @default("")
+  /// 转入方
+  toKind      String   @default("")
+  toId        Int?
+  toName      String   @default("")
+  /// 这笔钱是干啥的
   note        String   @default("")
   /// 业务日 "YYYY-MM-DD"
   entryDate   String
-  /// self 自产 | supplier 供应商。仅 kind=cost 有意义
+  /// self 自产 | supplier 供应商。仅 kind=cost 有意义（旧字段，新记账以转出/转入为准）
   costSource  String   @default("self")
   supplierId  Int?
   createdById Int?
@@ -160,6 +173,62 @@ model FinanceEntry {
   @@index([entryDate])
   @@index([createdById])
   @@index([supplierId])
+  @@index([fromKind, fromId])
+  @@index([toKind, toId])
+}
+
+/// 团队成员 —— 对账时引用的内部人（不必是登录账号）。
+model TeamMember {
+  id        Int      @id @default(autoincrement())
+  name      String
+  contact   String   @default("")
+  note      String   @default("")
+  active    Boolean  @default(true)
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active])
+}
+
+/// 合作伙伴 —— 对账对手方。详情页看与此人的全部转账。
+model Partner {
+  id        Int      @id @default(autoincrement())
+  name      String
+  contact   String   @default("")
+  note      String   @default("")
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 团队资金头寸 —— 与项目利润流水分开
+//   held        当前持有
+//   receivable  未结账单（甲方还没打款 / 外债）
+// ═══════════════════════════════════════════════════════════════════
+
+/// 一笔资金。归属人/分组 + 位置/账户 + 币种。金额是当前头寸，改记录即改账面。
+model CompanyFund {
+  id     Int    @id @default(autoincrement())
+  /// 刘赛 / 金 / 秋明 / 卡台 / 外债 这类归属
+  holder String @default("")
+  /// 交行建行、公户、U卡、空云、BNB、TRON、甲方名
+  name   String
+  /// held 所持资金 | receivable 未结账单
+  kind   String
+  /// cny 人民币 | usdt U
+  currency String @default("cny")
+  amount Float  @default(0)
+  /// 金额尚未确定（如 U 卡余额不清楚）
+  uncertain Boolean @default(false)
+  note   String @default("")
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([kind])
+  @@index([holder])
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -366,8 +435,78 @@ model Sub2Site {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  monitors SupplierMonitor[]
-  logs     Sub2DispatchLog[]
+  monitors  SupplierMonitor[]
+  logs      Sub2DispatchLog[]
+  customers Customer[]
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 客户 —— 下游买家
+//   一条客户挂多条「所购资源」。卖价默认按折扣：
+//     收入 = 消耗(USD) × 汇率 × 折扣
+//   成本：固定记账（一笔人民币）或 API 自动（消耗 × 人民币单价）。
+//   绑定某个 sub2 用户后，详情页按用量实时算利润，不写进项目流水。
+// ═══════════════════════════════════════════════════════════════════
+
+model Customer {
+  id            Int      @id @default(autoincrement())
+  name          String
+  /// 系统归属（销售角色按这个做行级过滤）
+  ownerId       Int
+  /// 展示用归属，自由文本，不要求是系统账号
+  ownerName     String   @default("")
+  contact       String   @default("")
+  /// active 合作中 | paused 暂停 | closed 已终止
+  status        String   @default("active")
+  notes         String   @default("")
+  sub2SiteId    Int?
+  /// sub2api 用户数字 id
+  sub2UserId    Int?
+  sub2UserName  String   @default("")
+  sub2UserEmail String   @default("")
+  deletedAt     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  owner     User               @relation("CustomerOwner", fields: [ownerId], references: [id])
+  sub2Site  Sub2Site?          @relation(fields: [sub2SiteId], references: [id], onDelete: SetNull)
+  resources CustomerResource[]
+
+  @@unique([sub2SiteId, sub2UserId])
+  @@index([ownerId])
+  @@index([status])
+  @@index([sub2SiteId])
+}
+
+/// 客户购买的一种资源 + 卖价/成本口径。
+model CustomerResource {
+  id       Int    @id @default(autoincrement())
+  customerId Int
+  name     String
+  /// openai | anthropic | gemini | grok | 空=不限平台
+  platform String @default("")
+  /// discount 折扣（默认） | unit 固定单价（每 1 USD 消耗卖多少人民币）
+  sellMode String @default("discount")
+  /// 折扣倍率，4 折存 0.4
+  discount Float  @default(1)
+  /// 汇率，默认 6.75
+  fxRate   Float  @default(6.75)
+  /// sellMode=unit 时：每 1 USD 消耗的人民币卖价
+  sellUnitPrice Float @default(0)
+  /// fixed 固定记账 | api 按消耗自动
+  costMode String @default("api")
+  /// costMode=fixed：人民币定额，不随消耗变
+  costFixedAmount Float @default(0)
+  /// costMode=api：每 1 USD 消耗对应的人民币成本
+  costUnitPrice Float @default(0)
+  note     String @default("")
+  sortOrder Int   @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
 }
 
 /// 供应商延迟探测目标。一个供应商可以有多条渠道。

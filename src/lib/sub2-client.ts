@@ -199,3 +199,158 @@ export async function readConcurrency(
   }
   return out;
 }
+
+export type Sub2User = {
+  id: number;
+  email: string;
+  username: string;
+  name: string;
+  status: string;
+  role: string;
+  balance: number | null;
+};
+
+function asUser(raw: Record<string, unknown>): Sub2User {
+  const username = String(raw.username ?? "");
+  const email = String(raw.email ?? "");
+  const name = String(raw.name ?? raw.display_name ?? (username || email));
+  const balance = raw.balance;
+  return {
+    id: Number(raw.id),
+    email,
+    username,
+    name,
+    status: String(raw.status ?? ""),
+    role: String(raw.role ?? ""),
+    balance: balance == null || balance === "" ? null : Number(balance),
+  };
+}
+
+export async function listUsers(
+  site: Sub2SiteAuth,
+  query: { search?: string; page_size?: number; maxPages?: number } = {},
+): Promise<{ ok: true; items: Sub2User[] } | { ok: false; error: string }> {
+  const items: Sub2User[] = [];
+  let page = 1;
+  const pageSize = query.page_size ?? 100;
+  const maxPages = query.maxPages ?? 20;
+  for (;;) {
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+      sort_by: "id",
+      sort_order: "asc",
+    });
+    if (query.search) params.set("search", query.search);
+    const r = await sub2Request<{ items?: unknown[]; pages?: number }>(site, `/api/v1/admin/users?${params}`);
+    if (!r.ok) return r;
+    const batch = (r.data.items ?? []).map((row) => asUser(row as Record<string, unknown>));
+    items.push(...batch);
+    const pages = Number(r.data.pages ?? 1);
+    if (page >= pages || batch.length < pageSize || page >= maxPages) break;
+    page += 1;
+  }
+  return { ok: true, items };
+}
+
+export async function getUser(
+  site: Sub2SiteAuth,
+  id: number,
+): Promise<{ ok: true; item: Sub2User } | { ok: false; error: string }> {
+  const r = await sub2Request<Record<string, unknown>>(site, `/api/v1/admin/users/${id}`);
+  if (!r.ok) return r;
+  return { ok: true, item: asUser(r.data) };
+}
+
+function numField(obj: Record<string, unknown>, ...keys: string[]): number {
+  for (const key of keys) {
+    const v = obj[key];
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+    if (typeof v === "string" && v.trim() && Number.isFinite(Number(v))) return Number(v);
+  }
+  return 0;
+}
+
+export type Sub2UsageStats = {
+  totalCost: number;
+  totalActualCost: number;
+  totalAccountCost: number;
+  totalRequests: number;
+  totalTokens: number;
+  byPlatform: Record<string, number>;
+};
+
+function asUsageStats(raw: unknown): Sub2UsageStats {
+  const obj = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const nested =
+    obj.summary && typeof obj.summary === "object"
+      ? (obj.summary as Record<string, unknown>)
+      : obj;
+  const byPlatform: Record<string, number> = {};
+  const buckets = [obj.endpoints, obj.platforms, obj.by_platform, nested.endpoints];
+  for (const bucket of buckets) {
+    if (!Array.isArray(bucket)) continue;
+    for (const row of bucket) {
+      if (!row || typeof row !== "object") continue;
+      const item = row as Record<string, unknown>;
+      const platform = String(item.platform ?? item.channel ?? "").toLowerCase();
+      const cost = numField(item, "total_cost", "cost", "usage_usd", "totalCost");
+      if (platform) byPlatform[platform] = (byPlatform[platform] ?? 0) + cost;
+    }
+  }
+  if (obj.by_platform && typeof obj.by_platform === "object" && !Array.isArray(obj.by_platform)) {
+    for (const [platform, value] of Object.entries(obj.by_platform as Record<string, unknown>)) {
+      const n = typeof value === "number" ? value : numField((value ?? {}) as Record<string, unknown>, "total_cost", "cost");
+      if (platform && n) byPlatform[platform.toLowerCase()] = (byPlatform[platform.toLowerCase()] ?? 0) + n;
+    }
+  }
+  return {
+    totalCost: numField(nested, "total_cost", "totalCost", "user_cost", "total_user_cost"),
+    totalActualCost: numField(nested, "total_actual_cost", "totalActualCost", "actual_cost"),
+    totalAccountCost: numField(nested, "total_account_cost", "totalAccountCost", "account_cost"),
+    totalRequests: numField(nested, "total_requests", "totalRequests"),
+    totalTokens: numField(nested, "total_tokens", "totalTokens"),
+    byPlatform,
+  };
+}
+
+export async function getUsageStats(
+  site: Sub2SiteAuth,
+  query: { userId: number; startDate: string; endDate: string },
+): Promise<{ ok: true; item: Sub2UsageStats } | { ok: false; error: string }> {
+  const params = new URLSearchParams({
+    user_id: String(query.userId),
+    start_date: query.startDate,
+    end_date: query.endDate,
+    timezone: "Asia/Shanghai",
+  });
+  const r = await sub2Request<unknown>(site, `/api/v1/admin/usage/stats?${params}`);
+  if (!r.ok) return r;
+  return { ok: true, item: asUsageStats(r.data) };
+}
+
+export type PlatformUsage = { platform: string; usageUsd: number };
+
+export async function getPlatformUsage(
+  site: Sub2SiteAuth,
+  userId: number,
+  window: "daily" | "weekly" | "monthly",
+): Promise<{ ok: true; items: PlatformUsage[] } | { ok: false; error: string }> {
+  const r = await sub2Request<{ platform_quotas?: unknown[]; quotas?: unknown[] }>(
+    site,
+    `/api/v1/admin/users/${userId}/platform-quotas`,
+  );
+  if (!r.ok) return r;
+  const rows = r.data.platform_quotas ?? r.data.quotas ?? [];
+  const key =
+    window === "daily" ? "daily_usage_usd" : window === "weekly" ? "weekly_usage_usd" : "monthly_usage_usd";
+  const items: PlatformUsage[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const item = row as Record<string, unknown>;
+    const platform = String(item.platform ?? "").toLowerCase();
+    if (!platform) continue;
+    items.push({ platform, usageUsd: numField(item, key) });
+  }
+  return { ok: true, items };
+}

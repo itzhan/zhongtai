@@ -24,11 +24,11 @@ export function parseSiteBody(
   const baseUrl = body.baseUrl === undefined ? undefined : String(body.baseUrl).trim().replace(/\/+$/, "");
   const apiKey = body.apiKey === undefined ? undefined : String(body.apiKey).trim();
   if (!partial) {
-    if (!name) return { error: "请填写台子名称" as const };
+    if (!name) return { error: "请填写名称" as const };
     if (!baseUrl) return { error: "请填写 sub2 地址" as const };
     if (!apiKey) return { error: "请填写管理员 API Key" as const };
   } else {
-    if (body.name !== undefined && !name) return { error: "请填写台子名称" as const };
+    if (body.name !== undefined && !name) return { error: "请填写名称" as const };
     if (body.baseUrl !== undefined && !baseUrl) return { error: "请填写 sub2 地址" as const };
   }
 

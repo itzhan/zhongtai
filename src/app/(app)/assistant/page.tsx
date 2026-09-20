@@ -24,19 +24,27 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { useProjectOptions, useSupplierOptions } from "@/hooks/use-options";
+import PartyPicker from "@/components/PartyPicker";
+import { useMemberOptions, usePartnerOptions, useProjectOptions, useSupplierOptions } from "@/hooks/use-options";
 import { api } from "@/lib/api-client";
 import {
   COST_SOURCE,
   COST_SOURCE_LABEL,
   FINANCE_KIND,
   FINANCE_KIND_LABEL,
+  FUND_CURRENCY,
+  FUND_CURRENCY_LABEL,
+  PAY_CHANNEL,
+  PAY_CHANNEL_LABEL,
   PARTNER_STATUS_LABEL,
   parseSupplierCategories,
   SUPPLIER_CATEGORY_LABEL,
   type CostSource,
   type FinanceKind,
+  type FundCurrency,
   type PartnerStatus,
+  type PartyKind,
+  type PayChannel,
 } from "@/lib/enums";
 import { todayStr } from "@/lib/format";
 
@@ -62,6 +70,8 @@ interface ParseResult {
 export default function AssistantPage() {
   const projects = useProjectOptions(true);
   const suppliers = useSupplierOptions(true);
+  const members = useMemberOptions(true);
+  const partners = usePartnerOptions(true);
   const [actions, setActions] = useState<ActionItem[]>([]);
   const [actionId, setActionId] = useState("");
   const [message, setMessage] = useState("");
@@ -274,6 +284,8 @@ export default function AssistantPage() {
               items={items}
               projects={projects}
               suppliers={suppliers}
+              members={members}
+              partners={partners}
               onChange={updateItem}
               onRemove={removeItem}
             />
@@ -289,6 +301,8 @@ function DraftTable({
   items,
   projects,
   suppliers,
+  members,
+  partners,
   onChange,
   onRemove,
 }: {
@@ -296,20 +310,26 @@ function DraftTable({
   items: Record<string, unknown>[];
   projects: { id: number; name: string }[];
   suppliers: { id: number; name: string }[];
+  members: { id: number; name: string }[];
+  partners: { id: number; name: string }[];
   onChange: (index: number, patch: Record<string, unknown>) => void;
   onRemove: (index: number) => void;
 }) {
   if (actionId === "bookkeep") {
     return (
+      <div className="overflow-x-auto">
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead>项目</TableHead>
             <TableHead>方向</TableHead>
-            <TableHead>来源</TableHead>
+            <TableHead>转出</TableHead>
+            <TableHead>转入</TableHead>
             <TableHead>金额</TableHead>
+            <TableHead>币种</TableHead>
+            <TableHead>渠道</TableHead>
             <TableHead>日期</TableHead>
-            <TableHead>说明</TableHead>
+            <TableHead>用途</TableHead>
             <TableHead className="w-10" />
           </TableRow>
         </TableHeader>
@@ -350,45 +370,25 @@ function DraftTable({
                   </SelectContent>
                 </Select>
               </TableCell>
-              <TableCell className="min-w-[160px]">
-                {d.kind === "cost" ? (
-                  <div className="flex gap-1">
-                    <Select
-                      value={String(d.costSource ?? "self")}
-                      onValueChange={(v) => onChange(i, { costSource: v as CostSource, ...(v === "self" ? { supplierId: null } : {}) })}
-                    >
-                      <SelectTrigger className="w-24">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {COST_SOURCE.map((s) => (
-                          <SelectItem key={s} value={s}>
-                            {COST_SOURCE_LABEL[s]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {d.costSource === "supplier" && (
-                      <Select
-                        value={d.supplierId ? String(d.supplierId) : ""}
-                        onValueChange={(v) => onChange(i, { supplierId: Number(v) })}
-                      >
-                        <SelectTrigger className="w-32">
-                          <SelectValue placeholder="供货方" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {suppliers.map((s) => (
-                            <SelectItem key={s.id} value={String(s.id)}>
-                              {s.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
-                ) : (
-                  <span className="text-sm text-muted-foreground">-</span>
-                )}
+              <TableCell className="min-w-[220px]">
+                <PartyPicker
+                  label=""
+                  kind={String(d.fromKind ?? "member")}
+                  id={d.fromId ? Number(d.fromId) : null}
+                  members={members}
+                  partners={partners}
+                  onChange={(k, id) => onChange(i, { fromKind: k, fromId: id })}
+                />
+              </TableCell>
+              <TableCell className="min-w-[220px]">
+                <PartyPicker
+                  label=""
+                  kind={String(d.toKind ?? "partner")}
+                  id={d.toId ? Number(d.toId) : null}
+                  members={members}
+                  partners={partners}
+                  onChange={(k, id) => onChange(i, { toKind: k, toId: id })}
+                />
               </TableCell>
               <TableCell>
                 <Input
@@ -397,6 +397,40 @@ function DraftTable({
                   value={String(d.amount ?? "")}
                   onChange={(e) => onChange(i, { amount: Number(e.target.value) })}
                 />
+              </TableCell>
+              <TableCell>
+                <Select
+                  value={String(d.currency ?? "cny")}
+                  onValueChange={(v) => onChange(i, { currency: v as FundCurrency })}
+                >
+                  <SelectTrigger className="w-24">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FUND_CURRENCY.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {FUND_CURRENCY_LABEL[c]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </TableCell>
+              <TableCell>
+                <Select
+                  value={d.channel ? String(d.channel) : undefined}
+                  onValueChange={(v) => onChange(i, { channel: v as PayChannel })}
+                >
+                  <SelectTrigger className="w-28">
+                    <SelectValue placeholder="渠道" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PAY_CHANNEL.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {PAY_CHANNEL_LABEL[c]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </TableCell>
               <TableCell>
                 <Input
@@ -421,6 +455,7 @@ function DraftTable({
           ))}
         </TableBody>
       </Table>
+      </div>
     );
   }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { badRequest, notFound, parseId, requireRoleFresh } from "@/lib/guard";
+import { parseTransfer } from "@/lib/ledger";
 import { jsonItem } from "@/lib/mask";
 import { ROLES } from "@/lib/rbac";
 
@@ -21,6 +22,14 @@ function toPurchaseShape(row: {
   entryDate: string;
   createdById: number | null;
   creatorName: string;
+  currency?: string;
+  channel?: string;
+  fromKind?: string;
+  fromId?: number | null;
+  fromName?: string;
+  toKind?: string;
+  toId?: number | null;
+  toName?: string;
   project: { id: number; code: string; name: string } | null;
   createdBy: { id: number; displayName: string } | null;
 }) {
@@ -45,6 +54,14 @@ function toPurchaseShape(row: {
     amount: row.amount,
     note: row.note,
     entryDate: row.entryDate,
+    currency: row.currency ?? "cny",
+    channel: row.channel ?? "",
+    fromKind: row.fromKind ?? "",
+    fromId: row.fromId ?? null,
+    fromName: row.fromName ?? "",
+    toKind: row.toKind ?? "",
+    toId: row.toId ?? null,
+    toName: row.toName ?? "",
   };
 }
 
@@ -60,17 +77,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   });
   if (!existing) return notFound("成本记录不存在");
 
-  const body = (await req.json().catch(() => ({}))) as Partial<{
-    projectId: number;
-    content: string;
-    detail: string;
-    note: string;
-    totalAmount: number;
-    amount: number;
-    purchaseDate: string;
-    entryDate: string;
-    purchaserName: string;
-  }>;
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
   const data: Record<string, unknown> = {};
 
@@ -93,21 +100,45 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   const note = body.note ?? body.detail ?? body.content;
   if (note !== undefined) {
-    const v = note.trim();
+    const v = String(note).trim();
     if (!v) return badRequest("花销说明不能为空");
     data.note = v;
   }
 
   const entryDate = body.entryDate ?? body.purchaseDate;
   if (entryDate !== undefined) {
-    if (!DATE_RE.test(entryDate)) return badRequest("日期格式应为 YYYY-MM-DD");
-    data.entryDate = entryDate;
+    const d = String(entryDate);
+    if (!DATE_RE.test(d)) return badRequest("日期格式应为 YYYY-MM-DD");
+    data.entryDate = d;
   }
 
   if (body.purchaserName !== undefined) {
-    const purchaserName = body.purchaserName.trim();
+    const purchaserName = String(body.purchaserName).trim();
     if (!purchaserName) return badRequest("采购人不能为空");
     data.creatorName = purchaserName;
+  }
+
+  if (
+    body.fromKind !== undefined ||
+    body.fromId !== undefined ||
+    body.toKind !== undefined ||
+    body.toId !== undefined ||
+    body.currency !== undefined ||
+    body.channel !== undefined
+  ) {
+    const transfer = await parseTransfer(
+      {
+        fromKind: body.fromKind ?? existing.fromKind,
+        fromId: body.fromId ?? existing.fromId,
+        toKind: body.toKind ?? existing.toKind,
+        toId: body.toId ?? existing.toId,
+        currency: body.currency ?? existing.currency,
+        channel: body.channel ?? existing.channel,
+      },
+      true,
+    );
+    if ("error" in transfer) return badRequest(transfer.error);
+    Object.assign(data, transfer);
   }
 
   const item = await prisma.financeEntry.update({

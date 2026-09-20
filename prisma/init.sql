@@ -51,6 +51,14 @@ CREATE TABLE "FinanceEntry" (
     "projectId" INTEGER NOT NULL,
     "kind" TEXT NOT NULL,
     "amount" REAL NOT NULL DEFAULT 0,
+    "currency" TEXT NOT NULL DEFAULT 'cny',
+    "channel" TEXT NOT NULL DEFAULT '',
+    "fromKind" TEXT NOT NULL DEFAULT '',
+    "fromId" INTEGER,
+    "fromName" TEXT NOT NULL DEFAULT '',
+    "toKind" TEXT NOT NULL DEFAULT '',
+    "toId" INTEGER,
+    "toName" TEXT NOT NULL DEFAULT '',
     "note" TEXT NOT NULL DEFAULT '',
     "entryDate" TEXT NOT NULL,
     "costSource" TEXT NOT NULL DEFAULT 'self',
@@ -63,6 +71,44 @@ CREATE TABLE "FinanceEntry" (
     CONSTRAINT "FinanceEntry_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "FinanceEntry_supplierId_fkey" FOREIGN KEY ("supplierId") REFERENCES "Supplier" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "FinanceEntry_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "TeamMember" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "name" TEXT NOT NULL,
+    "contact" TEXT NOT NULL DEFAULT '',
+    "note" TEXT NOT NULL DEFAULT '',
+    "active" BOOLEAN NOT NULL DEFAULT true,
+    "deletedAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+
+-- CreateTable
+CREATE TABLE "Partner" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "name" TEXT NOT NULL,
+    "contact" TEXT NOT NULL DEFAULT '',
+    "note" TEXT NOT NULL DEFAULT '',
+    "deletedAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+
+-- CreateTable
+CREATE TABLE "CompanyFund" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "holder" TEXT NOT NULL DEFAULT '',
+    "name" TEXT NOT NULL,
+    "kind" TEXT NOT NULL,
+    "currency" TEXT NOT NULL DEFAULT 'cny',
+    "amount" REAL NOT NULL DEFAULT 0,
+    "uncertain" BOOLEAN NOT NULL DEFAULT false,
+    "note" TEXT NOT NULL DEFAULT '',
+    "deletedAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
 );
 
 -- CreateTable
@@ -183,6 +229,46 @@ CREATE TABLE "Sub2Site" (
     "maxConcurrency" INTEGER NOT NULL DEFAULT 50,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL
+);
+
+-- CreateTable
+CREATE TABLE "Customer" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "name" TEXT NOT NULL,
+    "ownerId" INTEGER NOT NULL,
+    "ownerName" TEXT NOT NULL DEFAULT '',
+    "contact" TEXT NOT NULL DEFAULT '',
+    "status" TEXT NOT NULL DEFAULT 'active',
+    "notes" TEXT NOT NULL DEFAULT '',
+    "sub2SiteId" INTEGER,
+    "sub2UserId" INTEGER,
+    "sub2UserName" TEXT NOT NULL DEFAULT '',
+    "sub2UserEmail" TEXT NOT NULL DEFAULT '',
+    "deletedAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "Customer_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "Customer_sub2SiteId_fkey" FOREIGN KEY ("sub2SiteId") REFERENCES "Sub2Site" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "CustomerResource" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "customerId" INTEGER NOT NULL,
+    "name" TEXT NOT NULL,
+    "platform" TEXT NOT NULL DEFAULT '',
+    "sellMode" TEXT NOT NULL DEFAULT 'discount',
+    "discount" REAL NOT NULL DEFAULT 1,
+    "fxRate" REAL NOT NULL DEFAULT 6.75,
+    "sellUnitPrice" REAL NOT NULL DEFAULT 0,
+    "costMode" TEXT NOT NULL DEFAULT 'api',
+    "costFixedAmount" REAL NOT NULL DEFAULT 0,
+    "costUnitPrice" REAL NOT NULL DEFAULT 0,
+    "note" TEXT NOT NULL DEFAULT '',
+    "sortOrder" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "CustomerResource_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -522,6 +608,21 @@ CREATE INDEX "FinanceEntry_createdById_idx" ON "FinanceEntry"("createdById");
 CREATE INDEX "FinanceEntry_supplierId_idx" ON "FinanceEntry"("supplierId");
 
 -- CreateIndex
+CREATE INDEX "FinanceEntry_fromKind_fromId_idx" ON "FinanceEntry"("fromKind", "fromId");
+
+-- CreateIndex
+CREATE INDEX "FinanceEntry_toKind_toId_idx" ON "FinanceEntry"("toKind", "toId");
+
+-- CreateIndex
+CREATE INDEX "TeamMember_active_idx" ON "TeamMember"("active");
+
+-- CreateIndex
+CREATE INDEX "CompanyFund_kind_idx" ON "CompanyFund"("kind");
+
+-- CreateIndex
+CREATE INDEX "CompanyFund_holder_idx" ON "CompanyFund"("holder");
+
+-- CreateIndex
 CREATE INDEX "Product_projectId_idx" ON "Product"("projectId");
 
 -- CreateIndex
@@ -559,6 +660,21 @@ CREATE INDEX "SupplierComment_supplierId_idx" ON "SupplierComment"("supplierId")
 
 -- CreateIndex
 CREATE INDEX "SupplierComment_createdById_idx" ON "SupplierComment"("createdById");
+
+-- CreateIndex
+CREATE INDEX "Customer_ownerId_idx" ON "Customer"("ownerId");
+
+-- CreateIndex
+CREATE INDEX "Customer_status_idx" ON "Customer"("status");
+
+-- CreateIndex
+CREATE INDEX "Customer_sub2SiteId_idx" ON "Customer"("sub2SiteId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Customer_sub2SiteId_sub2UserId_key" ON "Customer"("sub2SiteId", "sub2UserId");
+
+-- CreateIndex
+CREATE INDEX "CustomerResource_customerId_idx" ON "CustomerResource"("customerId");
 
 -- CreateIndex
 CREATE INDEX "SupplierMonitor_supplierId_idx" ON "SupplierMonitor"("supplierId");

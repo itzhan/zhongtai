@@ -17,6 +17,8 @@ import {
   Store,
   Truck,
   Wallet,
+  Users,
+  Server,
   type LucideIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +45,9 @@ export const ICONS: Record<IconKey, LucideIcon> = {
   settings: Settings,
   monitor: Activity,
   schedule: SlidersHorizontal,
+  wallet: Wallet,
+  customer: Users,
+  platform: Server,
 };
 
 export function isActive(pathname: string, item: NavItem): boolean {

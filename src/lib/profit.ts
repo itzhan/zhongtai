@@ -1,13 +1,14 @@
 // 利润聚合 —— 全系统唯一的公式定义处。
 //
-//   revenue = Σ FinanceEntry.amount  where kind = income
-//   cost    = Σ FinanceEntry.amount  where kind = cost
+//   revenue = Σ toCny(amount)  where kind = income
+//   cost    = Σ toCny(amount)  where kind = cost
 //   profit  = revenue − cost
+//   U 按 USDT_CNY_RATE 折人民币后再加。
 //
 // 旧口径（台子卖价 / 采购表 / 供货进货）不再参与项目利润。
 // 台子 newapi/sub2api 消耗接入后若要计入, 在本文件扩展。
 import { prisma } from "./db";
-import { todayStr } from "./format";
+import { todayStr, toCny } from "./format";
 
 export interface ProjectProfit {
   projectId: number;
@@ -39,7 +40,7 @@ function assemble(projectId: number, revenue: number, cost: number): ProjectProf
 
 export async function projectProfit(projectId: number): Promise<ProjectProfit> {
   const rows = await prisma.financeEntry.groupBy({
-    by: ["kind"],
+    by: ["kind", "currency"],
     where: { projectId, deletedAt: null },
     _sum: { amount: true },
   });
@@ -47,9 +48,9 @@ export async function projectProfit(projectId: number): Promise<ProjectProfit> {
   let revenue = 0;
   let cost = 0;
   for (const r of rows) {
-    const sum = r._sum.amount ?? 0;
-    if (r.kind === "income") revenue = sum;
-    else if (r.kind === "cost") cost = sum;
+    const sum = toCny(r._sum.amount ?? 0, r.currency);
+    if (r.kind === "income") revenue += sum;
+    else if (r.kind === "cost") cost += sum;
   }
   return assemble(projectId, revenue, cost);
 }
@@ -57,7 +58,7 @@ export async function projectProfit(projectId: number): Promise<ProjectProfit> {
 /// 一次算完所有项目 —— 仪表盘和项目列表用, 避免 N+1 次查询。
 export async function allProjectProfits(): Promise<Map<number, ProjectProfit>> {
   const rows = await prisma.financeEntry.groupBy({
-    by: ["projectId", "kind"],
+    by: ["projectId", "kind", "currency"],
     where: { deletedAt: null },
     _sum: { amount: true },
   });
@@ -65,7 +66,7 @@ export async function allProjectProfits(): Promise<Map<number, ProjectProfit>> {
   const revenue = new Map<number, number>();
   const cost = new Map<number, number>();
   for (const r of rows) {
-    const sum = r._sum.amount ?? 0;
+    const sum = toCny(r._sum.amount ?? 0, r.currency);
     if (r.kind === "income") revenue.set(r.projectId, (revenue.get(r.projectId) ?? 0) + sum);
     else if (r.kind === "cost") cost.set(r.projectId, (cost.get(r.projectId) ?? 0) + sum);
   }
@@ -101,7 +102,7 @@ export async function projectDailyProfit(
       deletedAt: null,
       entryDate: { gte: since, lte: until },
     },
-    select: { kind: true, amount: true, entryDate: true },
+    select: { kind: true, amount: true, entryDate: true, currency: true },
   });
 
   const byDate = new Map<string, { income: number; cost: number }>();
@@ -110,8 +111,9 @@ export async function projectDailyProfit(
   for (const r of rows) {
     const bucket = byDate.get(r.entryDate);
     if (!bucket) continue;
-    if (r.kind === "income") bucket.income += r.amount;
-    else if (r.kind === "cost") bucket.cost += r.amount;
+    const n = toCny(r.amount, r.currency);
+    if (r.kind === "income") bucket.income += n;
+    else if (r.kind === "cost") bucket.cost += n;
   }
 
   return range.map((date) => {

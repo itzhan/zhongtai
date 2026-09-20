@@ -16,6 +16,14 @@ const { SALES, PRODUCTION, FINANCE, RESOURCE } = ROLES;
 const SENSITIVE = {
   desk: { apiToken: [SALES, FINANCE] },
   deskItem: { unitPrice: [SALES, FINANCE] }, // 生产看不到卖价
+  customer: {},
+  customerResource: {
+    discount: [SALES, FINANCE],
+    fxRate: [SALES, FINANCE],
+    sellUnitPrice: [SALES, FINANCE],
+    costFixedAmount: [FINANCE],
+    costUnitPrice: [FINANCE],
+  },
   supplier: {},
   supplierGood: {},
   supplierComment: {},
@@ -28,6 +36,9 @@ const SENSITIVE = {
   purchase: { totalAmount: [RESOURCE, FINANCE], detail: [RESOURCE, FINANCE] },
   /// 成本流水金额: 资源/财务可见; 收入金额: 销售/财务可见 —— 见 handler 分流
   financeEntry: { amount: [SALES, RESOURCE, FINANCE] },
+  companyFund: { amount: [FINANCE] },
+  teamMember: {},
+  partner: {},
   demand: {},
   source: {
     priceInfo: [RESOURCE, FINANCE],
@@ -50,6 +61,7 @@ export type Entity = keyof typeof SENSITIVE;
 /// Prisma include 出来的树不会漏网。
 const NESTED: Partial<Record<Entity, Record<string, Entity>>> = {
   desk: { items: "deskItem" },
+  customer: { resources: "customerResource", sub2Site: "sub2Site" },
   supplier: { goodsItems: "supplierGood", comments: "supplierComment", monitors: "supplierMonitor" },
   sub2Site: { monitors: "supplierMonitor", logs: "sub2DispatchLog" },
   supplierMonitor: { sub2Site: "sub2Site" },

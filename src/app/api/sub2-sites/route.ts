@@ -8,7 +8,7 @@ import { parseSiteBody, SUB2_SITE_INCLUDE } from "@/lib/sub2-site";
 export const runtime = "nodejs";
 
 export async function GET() {
-  const g = await requireRole(ROLES.RESOURCE, ROLES.FINANCE);
+  const g = await requireRole(ROLES.SALES, ROLES.RESOURCE, ROLES.FINANCE);
   if (!g.ok) return g.res;
   const items = await prisma.sub2Site.findMany({ include: SUB2_SITE_INCLUDE, orderBy: { id: "asc" } });
   return jsonItems(

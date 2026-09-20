@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { badRequest, forbidden, notFound, parseId, requireRoleFresh } from "@/lib/guard";
 import { COST_SOURCE, FINANCE_KIND, isOneOf } from "@/lib/enums";
+import { parseTransfer } from "@/lib/ledger";
 import { jsonItem } from "@/lib/mask";
 import { ROLES } from "@/lib/rbac";
 
@@ -35,14 +36,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     return forbidden("无权修改该类型记录");
   }
 
-  const body = (await req.json().catch(() => ({}))) as Partial<{
-    kind: string;
-    amount: number;
-    note: string;
-    entryDate: string;
-    costSource: string;
-    supplierId: number | null;
-  }>;
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
   const data: Record<string, unknown> = {};
 
@@ -56,7 +50,33 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     if (!Number.isFinite(v) || v < 0) return badRequest("金额非法");
     data.amount = v;
   }
-  if (body.note !== undefined) data.note = body.note;
+  if (body.note !== undefined) {
+    const note = String(body.note).trim();
+    if (!note) return badRequest("请填写这笔钱是干啥的");
+    data.note = note;
+  }
+  if (
+    body.fromKind !== undefined ||
+    body.fromId !== undefined ||
+    body.toKind !== undefined ||
+    body.toId !== undefined ||
+    body.currency !== undefined ||
+    body.channel !== undefined
+  ) {
+    const transfer = await parseTransfer(
+      {
+        fromKind: body.fromKind ?? existing.fromKind,
+        fromId: body.fromId ?? existing.fromId,
+        toKind: body.toKind ?? existing.toKind,
+        toId: body.toId ?? existing.toId,
+        currency: body.currency ?? existing.currency,
+        channel: body.channel ?? existing.channel,
+      },
+      true,
+    );
+    if ("error" in transfer) return badRequest(transfer.error);
+    Object.assign(data, transfer);
+  }
   const nextKind = (data.kind as string | undefined) ?? existing.kind;
   if (nextKind === "income") {
     data.costSource = "self";
@@ -76,8 +96,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     }
   }
   if (body.entryDate !== undefined) {
-    if (!DATE_RE.test(body.entryDate)) return badRequest("日期格式应为 YYYY-MM-DD");
-    data.entryDate = body.entryDate;
+    const entryDate = String(body.entryDate);
+    if (!DATE_RE.test(entryDate)) return badRequest("日期格式应为 YYYY-MM-DD");
+    data.entryDate = entryDate;
   }
 
   const item = await prisma.financeEntry.update({

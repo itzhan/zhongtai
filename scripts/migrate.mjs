@@ -84,6 +84,22 @@ const MANIFEST = [
     columns: [
       ["costSource", '"costSource" TEXT NOT NULL DEFAULT \'self\''],
       ["supplierId", '"supplierId" INTEGER'],
+      ["currency", '"currency" TEXT NOT NULL DEFAULT \'cny\''],
+      ["channel", '"channel" TEXT NOT NULL DEFAULT \'\''],
+      ["fromKind", '"fromKind" TEXT NOT NULL DEFAULT \'\''],
+      ["fromId", '"fromId" INTEGER'],
+      ["fromName", '"fromName" TEXT NOT NULL DEFAULT \'\''],
+      ["toKind", '"toKind" TEXT NOT NULL DEFAULT \'\''],
+      ["toId", '"toId" INTEGER'],
+      ["toName", '"toName" TEXT NOT NULL DEFAULT \'\''],
+    ],
+  },
+  {
+    table: "CompanyFund",
+    columns: [
+      ["holder", '"holder" TEXT NOT NULL DEFAULT \'\''],
+      ["currency", '"currency" TEXT NOT NULL DEFAULT \'cny\''],
+      ["uncertain", '"uncertain" BOOLEAN NOT NULL DEFAULT false'],
     ],
   },
 ];
@@ -302,6 +318,14 @@ async function main() {
   if (await tableExists("SupplierMonitor")) {
     await prisma.$executeRawUnsafe(
       'CREATE INDEX IF NOT EXISTS "SupplierMonitor_sub2SiteId_idx" ON "SupplierMonitor"("sub2SiteId")',
+    );
+  }
+  if (await tableExists("FinanceEntry")) {
+    await prisma.$executeRawUnsafe(
+      'CREATE INDEX IF NOT EXISTS "FinanceEntry_fromKind_fromId_idx" ON "FinanceEntry"("fromKind", "fromId")',
+    );
+    await prisma.$executeRawUnsafe(
+      'CREATE INDEX IF NOT EXISTS "FinanceEntry_toKind_toId_idx" ON "FinanceEntry"("toKind", "toId")',
     );
   }
 

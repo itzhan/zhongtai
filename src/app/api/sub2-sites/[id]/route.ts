@@ -39,6 +39,10 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
     where: { sub2SiteId: id },
     data: { sub2SiteId: null, sub2AccountId: null },
   });
+  await prisma.customer.updateMany({
+    where: { sub2SiteId: id },
+    data: { sub2SiteId: null, sub2UserId: null, sub2UserName: "", sub2UserEmail: "" },
+  });
   await prisma.sub2Site.delete({ where: { id } });
   return NextResponse.json({ ok: true });
 }

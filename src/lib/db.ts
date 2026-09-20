@@ -8,9 +8,10 @@ const client = globalForPrisma.rawPrisma ?? new PrismaClient({
 if (process.env.NODE_ENV !== "production") globalForPrisma.rawPrisma = client;
 
 const SOFT_DELETE_MODELS = new Set([
-  "User", "Project", "Product", "Desk", "Supplier", "ResourceSource",
+  "User", "Project", "Product", "Desk", "Customer", "Supplier", "ResourceSource",
   "CardResource", "ProxyResource", "EmailResource", "ResourceBusiness",
   "ResourceAllocation", "ResourceRequest", "Purchase", "ProductionBatch",
+  "CompanyFund", "TeamMember", "Partner",
 ]);
 const FILTERED_OPERATIONS = new Set([
   "findUnique", "findUniqueOrThrow", "findFirst", "findFirstOrThrow",

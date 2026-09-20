@@ -8,8 +8,11 @@ import {
   canUseAction,
   isAssistantAction,
   isFinanceKind,
+  matchParty,
   matchProject,
   matchSupplier,
+  normalizeChannel,
+  normalizeCurrency,
   normalizeEnvelope,
   normalizeStatusPartner,
   normalizeStatusProject,
@@ -45,7 +48,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const [projects, suppliers] = await Promise.all([
+  const [projects, suppliers, members, partners] = await Promise.all([
     prisma.project.findMany({
       where: { deletedAt: null },
       select: { id: true, code: true, name: true },
@@ -56,6 +59,16 @@ export async function POST(req: Request) {
       select: { id: true, name: true, wechat: true, goods: true, category: true },
       orderBy: { id: "desc" },
     }),
+    prisma.teamMember.findMany({
+      where: { deletedAt: null, active: true },
+      select: { id: true, name: true },
+      orderBy: { id: "asc" },
+    }),
+    prisma.partner.findMany({
+      where: { deletedAt: null },
+      select: { id: true, name: true },
+      orderBy: { id: "asc" },
+    }),
   ]);
 
   try {
@@ -65,7 +78,7 @@ export async function POST(req: Request) {
       model: cfg.model,
       temperature: cfg.temperature,
       messages: [
-        { role: "system", content: buildSystemPrompt(action, projects, suppliers) },
+        { role: "system", content: buildSystemPrompt(action, projects, suppliers, members, partners) },
         { role: "user", content: message },
       ],
     });
@@ -76,6 +89,8 @@ export async function POST(req: Request) {
       env.items,
       projects,
       suppliers,
+      members,
+      partners,
       [...env.unresolved],
     );
 
@@ -93,6 +108,8 @@ function normalizeByAction(
   items: Record<string, unknown>[],
   projects: { id: number; code: string; name: string }[],
   suppliers: { id: number; name: string; wechat: string; goods: string; category: string }[],
+  members: { id: number; name: string }[],
+  partners: { id: number; name: string }[],
   unresolved: string[],
 ): { items: Record<string, unknown>[]; unresolved: string[] } {
   const out: Record<string, unknown>[] = [];
@@ -136,11 +153,37 @@ function normalizeByAction(
           }
         }
 
+        const channel = normalizeChannel(r.channel);
+        if (!channel) {
+          unresolved.push(`未识别转账渠道: ${String(r.channel || "空")}`);
+          break;
+        }
+        const defaultFromKind = r.kind === "income" ? "partner" : "member";
+        const defaultToKind = r.kind === "income" ? "member" : "partner";
+        const from = matchParty(members, partners, r.fromKind ?? defaultFromKind, r.fromId, r.fromName);
+        const to = matchParty(members, partners, r.toKind ?? defaultToKind, r.toId, r.toName);
+        if (!from) {
+          unresolved.push(`无法匹配转出人: ${String(r.fromName || r.fromId || "")}`);
+          break;
+        }
+        if (!to) {
+          unresolved.push(`无法匹配转入人: ${String(r.toName || r.toId || "")}`);
+          break;
+        }
+
         out.push({
           projectId: project.id,
           projectName: project.name,
           kind: r.kind,
           amount,
+          currency: normalizeCurrency(r.currency),
+          channel,
+          fromKind: from.kind,
+          fromId: from.id,
+          fromName: from.name,
+          toKind: to.kind,
+          toId: to.id,
+          toName: to.name,
           entryDate,
           note: String(r.note ?? "").trim() || (r.kind === "cost" ? "成本" : "收入"),
           costSource,

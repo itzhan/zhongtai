@@ -6,6 +6,7 @@ import DataState from "@/components/DataState";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import PageHeader from "@/components/PageHeader";
 import StatCard from "@/components/StatCard";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -40,9 +41,21 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useList } from "@/hooks/use-list";
-import { useProjectOptions } from "@/hooks/use-options";
 import { api, mutate } from "@/lib/api-client";
-import { fmtMoneyShort, todayStr } from "@/lib/format";
+import PartyPicker from "@/components/PartyPicker";
+import { useMemberOptions, usePartnerOptions, useProjectOptions } from "@/hooks/use-options";
+import {
+  FUND_CURRENCY,
+  FUND_CURRENCY_LABEL,
+  PAY_CHANNEL,
+  PAY_CHANNEL_LABEL,
+  PAY_CHANNEL_VARIANT,
+  isOneOf,
+  type FundCurrency,
+  type PartyKind,
+  type PayChannel,
+} from "@/lib/enums";
+import { fmtLedgerAmount, fmtMoneyShort, partyLabel, todayStr, toCny } from "@/lib/format";
 import type { Purchase } from "./types";
 
 export default function PurchasesPage() {
@@ -68,7 +81,7 @@ export default function PurchasesPage() {
   const [viewing, setViewing] = useState<Purchase | null>(null);
 
   const stats = useMemo(() => {
-    const amounts = items.map((p) => p.totalAmount ?? 0);
+    const amounts = items.map((p) => toCny(p.totalAmount ?? 0, p.currency));
     return {
       total: amounts.reduce((s, a) => s + a, 0),
       count: items.length,
@@ -157,8 +170,10 @@ export default function PurchasesPage() {
                 <TableRow>
                   <TableHead>日期</TableHead>
                   <TableHead>项目</TableHead>
+                  <TableHead>转出</TableHead>
+                  <TableHead>转入</TableHead>
+                  <TableHead>渠道</TableHead>
                   <TableHead>说明</TableHead>
-                  <TableHead>录入人</TableHead>
                   <TableHead className="text-right">金额</TableHead>
                   <TableHead className="w-10" />
                 </TableRow>
@@ -168,17 +183,23 @@ export default function PurchasesPage() {
                   <TableRow key={p.id} className="cursor-pointer" onClick={() => setViewing(p)}>
                     <TableCell className="font-mono text-xs">{p.purchaseDate}</TableCell>
                     <TableCell className="font-medium">{p.project?.name ?? "-"}</TableCell>
+                    <TableCell className="text-sm">{partyLabel(p.fromKind ?? "", p.fromName ?? "", p.fromId)}</TableCell>
+                    <TableCell className="text-sm">{partyLabel(p.toKind ?? "", p.toName ?? "", p.toId)}</TableCell>
                     <TableCell>
-                      <p className="truncate max-w-[320px]">{p.content || p.note || "-"}</p>
+                      {isOneOf(PAY_CHANNEL, p.channel) ? (
+                        <Badge variant={PAY_CHANNEL_VARIANT[p.channel]}>{PAY_CHANNEL_LABEL[p.channel]}</Badge>
+                      ) : (
+                        "-"
+                      )}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {p.purchaserName || p.purchaser.displayName}
+                    <TableCell>
+                      <p className="truncate max-w-[220px]">{p.content || p.note || "-"}</p>
                     </TableCell>
                     <TableCell className="text-right tabular-nums font-medium">
                       {p.totalAmount === null ? (
                         <span className="text-muted-foreground/50">···</span>
                       ) : (
-                        fmtMoneyShort(p.totalAmount)
+                        fmtLedgerAmount(p.totalAmount, p.currency)
                       )}
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
@@ -225,15 +246,17 @@ export default function PurchasesPage() {
             <div className="space-y-4 text-sm">
               <div className="grid grid-cols-2 gap-4">
                 <Info label="项目" value={viewing.project?.name ?? "-"} />
-                <Info
-                  label="录入人"
-                  value={viewing.purchaserName || viewing.purchaser.displayName}
-                />
                 <Info label="日期" value={viewing.purchaseDate} />
+                <Info label="转出" value={partyLabel(viewing.fromKind ?? "", viewing.fromName ?? "", viewing.fromId)} />
+                <Info label="转入" value={partyLabel(viewing.toKind ?? "", viewing.toName ?? "", viewing.toId)} />
+                <Info
+                  label="渠道"
+                  value={isOneOf(PAY_CHANNEL, viewing.channel) ? PAY_CHANNEL_LABEL[viewing.channel] : "-"}
+                />
                 <Info
                   label="金额"
                   value={
-                    viewing.totalAmount === null ? "-" : fmtMoneyShort(viewing.totalAmount)
+                    viewing.totalAmount === null ? "-" : fmtLedgerAmount(viewing.totalAmount, viewing.currency)
                   }
                 />
               </div>
@@ -288,11 +311,19 @@ function CostDialog({
   onSaved: () => void;
 }) {
   const projects = useProjectOptions(open);
+  const members = useMemberOptions(open);
+  const partners = usePartnerOptions(open);
   const [projectId, setProjectId] = useState("");
   const [note, setNote] = useState("");
   const [totalAmount, setTotalAmount] = useState("");
   const [purchaseDate, setPurchaseDate] = useState("");
   const [purchaserName, setPurchaserName] = useState("");
+  const [fromKind, setFromKind] = useState<PartyKind>("member");
+  const [fromId, setFromId] = useState<number | null>(null);
+  const [toKind, setToKind] = useState<PartyKind>("partner");
+  const [toId, setToId] = useState<number | null>(null);
+  const [currency, setCurrency] = useState<FundCurrency>("cny");
+  const [channel, setChannel] = useState<PayChannel | "">("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -302,6 +333,12 @@ function CostDialog({
     setTotalAmount(initial?.totalAmount != null ? String(initial.totalAmount) : "");
     setPurchaseDate(initial?.purchaseDate ?? todayStr());
     setPurchaserName(initial?.purchaserName || initial?.purchaser.displayName || "");
+    setFromKind((initial?.fromKind as PartyKind) || "member");
+    setFromId(initial?.fromId ?? null);
+    setToKind((initial?.toKind as PartyKind) || "partner");
+    setToId(initial?.toId ?? null);
+    setCurrency((initial?.currency as FundCurrency) || "cny");
+    setChannel((initial?.channel as PayChannel) || "");
   }, [open, initial]);
 
   async function save() {
@@ -309,6 +346,9 @@ function CostDialog({
     if (!note.trim()) return toast.warning("请填写花销说明");
     const amt = Number(totalAmount);
     if (!Number.isFinite(amt) || amt < 0) return toast.warning("金额非法");
+    if (!fromId) return toast.warning("请选择转出人");
+    if (!toId) return toast.warning("请选择转入人");
+    if (!channel) return toast.warning("请选择转账渠道");
 
     const payload = {
       projectId: Number(projectId),
@@ -318,6 +358,12 @@ function CostDialog({
       totalAmount: amt,
       purchaseDate,
       purchaserName: purchaserName.trim() || undefined,
+      fromKind,
+      fromId,
+      toKind,
+      toId,
+      currency,
+      channel,
     };
 
     setSaving(true);
@@ -361,14 +407,30 @@ function CostDialog({
             </Select>
           </Field>
 
+          <PartyPicker
+            label="转出人"
+            kind={fromKind}
+            id={fromId}
+            members={members}
+            partners={partners}
+            onChange={(k, id) => {
+              setFromKind(k);
+              setFromId(id);
+            }}
+          />
+          <PartyPicker
+            label="转入人"
+            kind={toKind}
+            id={toId}
+            members={members}
+            partners={partners}
+            onChange={(k, id) => {
+              setToKind(k);
+              setToId(id);
+            }}
+          />
+
           <div className="grid sm:grid-cols-2 gap-3">
-            <Field label="录入人">
-              <Input
-                value={purchaserName}
-                onChange={(e) => setPurchaserName(e.target.value)}
-                placeholder="默认当前用户"
-              />
-            </Field>
             <Field label="日期" required>
               <Input
                 type="date"
@@ -376,21 +438,50 @@ function CostDialog({
                 onChange={(e) => setPurchaseDate(e.target.value)}
               />
             </Field>
+            <Field label="金额" required>
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                inputMode="decimal"
+                className="tabular-nums"
+                value={totalAmount}
+                onChange={(e) => setTotalAmount(e.target.value)}
+              />
+            </Field>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Field label="币种" required>
+              <Select value={currency} onValueChange={(v) => setCurrency(v as FundCurrency)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FUND_CURRENCY.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {FUND_CURRENCY_LABEL[c]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="渠道" required>
+              <Select value={channel || undefined} onValueChange={(v) => setChannel(v as PayChannel)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="支付宝 / 微信 / 银行卡" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAY_CHANNEL.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {PAY_CHANNEL_LABEL[c]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
           </div>
 
-          <Field label="金额" required>
-            <Input
-              type="number"
-              min={0}
-              step="0.01"
-              inputMode="decimal"
-              className="tabular-nums"
-              value={totalAmount}
-              onChange={(e) => setTotalAmount(e.target.value)}
-            />
-          </Field>
-
-          <Field label="花销说明" required>
+          <Field label="这笔钱是干啥的" required>
             <Textarea
               rows={3}
               value={note}

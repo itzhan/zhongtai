@@ -1,3 +1,26 @@
+/// 团队资金 U → 人民币，口径只写这里。
+export const USDT_CNY_RATE = 6.75;
+export function usdtToCny(n: number): number {
+  return n * USDT_CNY_RATE;
+}
+
+export function toCny(n: number, currency?: string | null): number {
+  return currency === "usdt" ? usdtToCny(n) : n;
+}
+
+export function fmtLedgerAmount(n: number | null | undefined, currency?: string | null): string {
+  if (n == null || isNaN(n)) return "-";
+  const s = fmtMoneyShort(n);
+  return currency === "usdt" ? `${s} U` : s;
+}
+
+export function partyLabel(kind: string, name: string, id?: number | null) {
+  if (!kind && !name) return "-";
+  const tag = kind === "member" ? "成员" : kind === "partner" ? "伙伴" : "";
+  const who = name || (id ? `#${id}` : "-");
+  return tag ? `${who}（${tag}）` : who;
+}
+
 // Precise money: keeps full digits — used for unit prices and tooltips.
 export function fmtMoney(n: number, digits = 4): string {
   if (n == null || isNaN(n)) return "-";

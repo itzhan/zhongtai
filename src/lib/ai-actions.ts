@@ -1,11 +1,14 @@
 // AI 助手：操作类型、默认模板、系统提示与解析约定
 import {
   FINANCE_KIND,
+  FUND_CURRENCY,
   isOneOf,
   parseSupplierCategories,
   PARTNER_STATUS,
+  PAY_CHANNEL,
   PROJECT_STATUS,
   SUPPLIER_CATEGORY,
+  type PartyKind,
   type SupplierCategory,
 } from "./enums";
 import { todayStr } from "./format";
@@ -41,10 +44,10 @@ export const ACTION_META: Record<AssistantAction, ActionMeta> = {
     // 财务核心能力
     roles: [ROLES.FINANCE],
     template: `项目：【项目名称】
-今天收入：【金额】，说明：【来源】
-今天成本：【金额】，类型：自产 / 供应商【供应商名】，说明：【用途】
+收入：【金额】【人民币/U】，【谁】通过【支付宝/微信/银行卡】转给【谁】，用途：【干啥】
+成本：【金额】【人民币/U】，【谁】通过【支付宝/微信/银行卡】转给【谁】，用途：【干啥】
 
-也可直接写：项目 XX 今天花了 300 给巴总进货，回款 1000`,
+也可直接写：项目 XX 今天刘赛用支付宝转 300 给巴总进货，甲方张三微信转了 1000 给秋明`,
   },
   create_project: {
     id: "create_project",
@@ -99,6 +102,11 @@ export interface SupplierOption {
   category?: string;
 }
 
+export interface PartyOption {
+  id: number;
+  name: string;
+}
+
 function projectListText(projects: ProjectOption[]): string {
   if (!projects.length) return "（当前没有项目）";
   return projects.map((p) => `- id=${p.id} code=${p.code} name=${p.name}`).join("\n");
@@ -116,10 +124,17 @@ function yesterdayStr(): string {
   return new Date(t).toISOString().slice(0, 10);
 }
 
+function partyListText(kind: string, rows: PartyOption[]): string {
+  if (!rows.length) return `（当前没有${kind}）`;
+  return rows.map((p) => `- id=${p.id} name=${p.name}`).join("\n");
+}
+
 export function buildSystemPrompt(
   action: AssistantAction,
   projects: ProjectOption[],
   suppliers: SupplierOption[] = [],
+  members: PartyOption[] = [],
+  partners: PartyOption[] = [],
 ): string {
   const common = `你是中转利润管理中台的操作助手。只输出 JSON（不要 markdown）。
 今天: ${todayStr()}（Asia/Shanghai）
@@ -128,6 +143,10 @@ export function buildSystemPrompt(
 ${projectListText(projects)}
 可用供货方：
 ${supplierListText(suppliers)}
+可用团队成员：
+${partyListText("团队成员", members)}
+可用合作伙伴：
+${partyListText("合作伙伴", partners)}
 `;
 
   switch (action) {
@@ -137,12 +156,16 @@ ${supplierListText(suppliers)}
 规则：
 - kind 只能是 income 或 cost。amount 为正数。entryDate 为 YYYY-MM-DD。
 - projectId 必须来自可用项目；匹配不到写 unresolved。
+- currency 只能是 cny（人民币）或 usdt（U）。没说默认 cny。
+- channel 只能是 alipay / wechat / bank。分别对应支付宝、微信、银行卡。没说就 unresolved。
+- fromKind/toKind 只能是 member（团队成员）或 partner（合作伙伴）。
+- fromId/toId 必须来自对应名单；用姓名匹配。匹配不到写 unresolved。
+- 成本默认：成员转给伙伴。收入默认：伙伴转给成员。用户说了以用户为准。
+- note 写这笔钱是干啥的。
 - 收入：costSource 固定 self，supplierId 为 null。
-- 成本分两种：
-  - 自产：costSource=self，supplierId 为 null。用户没提供货方时用这个。
-  - 供应商：costSource=supplier，supplierId 必须来自可用供货方；匹配不到写 unresolved。
+- 成本若点名供货方：costSource=supplier 并填 supplierId；否则 costSource=self。
 输出：
-{"reply":"中文说明","items":[{"projectId":1,"projectName":"","kind":"cost","amount":100,"entryDate":"${todayStr()}","note":"说明","costSource":"self","supplierId":null,"supplierName":""}],"unresolved":[]}`;
+{"reply":"中文说明","items":[{"projectId":1,"projectName":"","kind":"cost","amount":100,"currency":"cny","channel":"alipay","fromKind":"member","fromId":1,"fromName":"","toKind":"partner","toId":1,"toName":"","entryDate":"${todayStr()}","note":"用途","costSource":"self","supplierId":null,"supplierName":""}],"unresolved":[]}`;
 
     case "create_project":
       return `${common}
@@ -274,4 +297,47 @@ export function canUseAction(role: Role, action: AssistantAction): boolean {
 
 export function isFinanceKind(v: unknown): v is "income" | "cost" {
   return isOneOf(FINANCE_KIND, v);
+}
+
+export function matchParty(
+  members: PartyOption[],
+  partners: PartyOption[],
+  kind: unknown,
+  id: unknown,
+  name?: unknown,
+): { kind: PartyKind; id: number; name: string } | null {
+  const n = typeof name === "string" ? name.trim().toLowerCase() : "";
+  const pick = (list: PartyOption[], k: PartyKind) => {
+    const byId = Number(id);
+    if (Number.isInteger(byId) && byId > 0) {
+      const hit = list.find((p) => p.id === byId);
+      if (hit) return { kind: k, id: hit.id, name: hit.name };
+    }
+    if (!n) return null;
+    const hit =
+      list.find((p) => p.name.toLowerCase() === n) ??
+      list.find((p) => p.name.toLowerCase().includes(n) || n.includes(p.name.toLowerCase()));
+    return hit ? { kind: k, id: hit.id, name: hit.name } : null;
+  };
+  if (kind === "member" || kind === "团队成员") return pick(members, "member");
+  if (kind === "partner" || kind === "合作伙伴") return pick(partners, "partner");
+  return pick(members, "member") ?? pick(partners, "partner");
+}
+
+export function normalizeCurrency(v: unknown): "cny" | "usdt" {
+  if (typeof v !== "string") return "cny";
+  const s = v.trim().toLowerCase();
+  if (isOneOf(FUND_CURRENCY, s)) return s;
+  if (s.includes("u") || s.includes("刀") || s.includes("美元") || s.includes("usdt")) return "usdt";
+  return "cny";
+}
+
+export function normalizeChannel(v: unknown): "alipay" | "wechat" | "bank" | null {
+  if (typeof v !== "string") return null;
+  const s = v.trim().toLowerCase();
+  if (isOneOf(PAY_CHANNEL, s)) return s;
+  if (s.includes("支付宝") || s.includes("alipay") || s.includes("zfb")) return "alipay";
+  if (s.includes("微信") || s.includes("wechat") || s.includes("wx")) return "wechat";
+  if (s.includes("银行") || s.includes("银行卡") || s.includes("bank")) return "bank";
+  return null;
 }

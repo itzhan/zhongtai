@@ -71,3 +71,15 @@ export interface SourceOption {
 
 export const useSourceOptions = (enabled = true) =>
   useOptions<SourceOption>("/api/sources", enabled);
+
+export interface PartyOption {
+  id: number;
+  name: string;
+  contact?: string;
+}
+
+export const useMemberOptions = (enabled = true) =>
+  useOptions<PartyOption>("/api/members", enabled);
+
+export const usePartnerOptions = (enabled = true) =>
+  useOptions<PartyOption>("/api/partners", enabled);

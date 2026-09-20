@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { badRequest, notFound, parseId, requireRole, requireRoleFresh } from "@/lib/guard";
 import { COST_SOURCE, FINANCE_KIND, isOneOf } from "@/lib/enums";
+import { parseTransfer } from "@/lib/ledger";
 import { jsonItem, maskMany } from "@/lib/mask";
 import { ROLES } from "@/lib/rbac";
 
@@ -84,14 +85,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const project = await prisma.project.findUnique({ where: { id: projectId }, select: { id: true } });
   if (!project) return notFound("项目不存在");
 
-  const body = (await req.json().catch(() => ({}))) as Partial<{
-    kind: string;
-    amount: number;
-    note: string;
-    entryDate: string;
-    costSource: string;
-    supplierId: number | null;
-  }>;
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
   if (!isOneOf(FINANCE_KIND, body.kind)) return badRequest("请选择收入或成本");
 
@@ -104,14 +98,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const amount = Number(body.amount);
   if (!Number.isFinite(amount) || amount < 0) return badRequest("金额非法");
-  if (!body.entryDate || !DATE_RE.test(body.entryDate)) {
+  const entryDate = String(body.entryDate ?? "");
+  if (!DATE_RE.test(entryDate)) {
     return badRequest("日期格式应为 YYYY-MM-DD");
   }
+  const note = String(body.note ?? "").trim();
+  if (!note) return badRequest("请填写这笔钱是干啥的");
+
+  const transfer = await parseTransfer(body, true);
+  if ("error" in transfer) return badRequest(transfer.error);
 
   let costSource = "self";
   let supplierId: number | null = null;
   if (body.kind === "cost") {
-    costSource = body.costSource ?? "self";
+    costSource = String(body.costSource ?? "self");
     if (!isOneOf(COST_SOURCE, costSource)) return badRequest("成本类型非法");
     if (costSource === "supplier") {
       const sid = Number(body.supplierId);
@@ -127,12 +127,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       projectId,
       kind: body.kind,
       amount,
-      note: body.note ?? "",
-      entryDate: body.entryDate,
+      note,
+      entryDate,
       costSource,
       supplierId,
       createdById: g.session.id,
       creatorName: g.session.displayName,
+      ...transfer,
     },
     include: INCLUDE,
   });
