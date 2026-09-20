@@ -19,6 +19,7 @@ import {
   Wallet,
   Users,
   Server,
+  Handshake,
   type LucideIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -48,6 +49,8 @@ export const ICONS: Record<IconKey, LucideIcon> = {
   wallet: Wallet,
   customer: Users,
   platform: Server,
+  member: Users,
+  partner: Handshake,
 };
 
 export function isActive(pathname: string, item: NavItem): boolean {

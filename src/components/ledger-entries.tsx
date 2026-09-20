@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Search } from "lucide-react";
 import PartyLink from "@/components/PartyLink";
+import PurposeCell from "@/components/PurposeCell";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -188,7 +189,7 @@ export default function LedgerEntriesTable({
               const outgoing = row.fromKind === selfKind && row.fromId === selfId;
               return (
                 <TableRow key={row.id}>
-                  <TableCell className="font-mono text-xs">{row.entryDate}</TableCell>
+                  <TableCell className="align-top font-mono text-xs">{row.entryDate}</TableCell>
                   <TableCell>
                     <Badge variant={FINANCE_KIND_VARIANT[(row.kind as FinanceKind) ?? "cost"]}>
                       {FINANCE_KIND_LABEL[(row.kind as FinanceKind) ?? "cost"] ?? row.kind}
@@ -226,7 +227,9 @@ export default function LedgerEntriesTable({
                   >
                     {row.amount == null ? "···" : fmtLedgerAmount(row.amount, row.currency)}
                   </TableCell>
-                  <TableCell className="max-w-[240px] truncate">{row.note || "-"}</TableCell>
+                  <TableCell className="align-top min-w-[14rem]">
+                    <PurposeCell text={row.note} />
+                  </TableCell>
                 </TableRow>
               );
             })}

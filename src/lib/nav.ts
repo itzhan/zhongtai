@@ -25,7 +25,9 @@ export type IconKey =
   | "schedule"
   | "wallet"
   | "customer"
-  | "platform";
+  | "platform"
+  | "member"
+  | "partner";
 
 export interface NavSubItem {
   href: string;
@@ -63,12 +65,18 @@ export const NAV: NavEntry[] = [
     label: "团队资金",
     icon: "wallet",
     roles: [FINANCE],
-    match: "/funds",
-    sub: [
-      { href: "/funds", label: "资金头寸" },
-      { href: "/funds/members", label: "团队成员", roles: [SALES, RESOURCE, FINANCE] },
-      { href: "/funds/partners", label: "合作伙伴", roles: [SALES, RESOURCE, FINANCE] },
-    ],
+  },
+  {
+    href: "/members",
+    label: "团队成员",
+    icon: "member",
+    roles: [SALES, RESOURCE, FINANCE],
+  },
+  {
+    href: "/partners",
+    label: "合作伙伴",
+    icon: "partner",
+    roles: [SALES, RESOURCE, FINANCE],
   },
   {
     href: "/",

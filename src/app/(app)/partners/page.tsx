@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { MoreHorizontal, Plus, Search } from "lucide-react";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import DataState from "@/components/DataState";
+import PageHeader from "@/components/PageHeader";
 import RoleGate from "@/components/RoleGate";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -50,17 +51,23 @@ export default function PartnersPage() {
 
   return (
     <>
+      <PageHeader
+        title="合作伙伴"
+        subtitle="对账对手方，点进去看全部交易"
+        actions={
+          <RoleGate roles={[ROLES.FINANCE]}>
+            <Button className="rounded-full" onClick={() => start(null)}>
+              <Plus size={14} />
+              新增伙伴
+            </Button>
+          </RoleGate>
+        }
+      />
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input className="pl-8 w-56" placeholder="搜索名称 / 联系方式" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
-        <RoleGate roles={[ROLES.FINANCE]}>
-          <Button className="rounded-full ml-auto" onClick={() => start(null)}>
-            <Plus size={14} />
-            新增伙伴
-          </Button>
-        </RoleGate>
       </div>
       <DataState loading={loading} error={error} empty={!items.length} emptyText="还没有合作伙伴" onRetry={reload}>
         <Card>
@@ -76,9 +83,9 @@ export default function PartnersPage() {
               </TableHeader>
               <TableBody>
                 {items.map((row) => (
-                  <TableRow key={row.id} className="cursor-pointer" onClick={() => router.push(`/funds/partners/${row.id}`)}>
+                  <TableRow key={row.id} className="cursor-pointer" onClick={() => router.push(`/partners/${row.id}`)}>
                     <TableCell className="font-medium">
-                      <Link href={`/funds/partners/${row.id}`} className="hover:text-primary" onClick={(e) => e.stopPropagation()}>
+                      <Link href={`/partners/${row.id}`} className="hover:text-primary" onClick={(e) => e.stopPropagation()}>
                         {row.name}
                       </Link>
                     </TableCell>

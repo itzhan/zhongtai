@@ -83,6 +83,7 @@ import {
 } from "@/lib/enums";
 import PartyLink from "@/components/PartyLink";
 import PartyPicker from "@/components/PartyPicker";
+import PurposeCell from "@/components/PurposeCell";
 import { fmtLedgerAmount, fmtMoneyShort, todayStr } from "@/lib/format";
 import { ROLES } from "@/lib/rbac";
 import type { Desk } from "../../desks/types";
@@ -491,14 +492,14 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                     <TableBody>
                       {pagedEntries.map((e) => (
                         <TableRow key={e.id}>
-                          <TableCell className="font-mono text-xs">{e.entryDate}</TableCell>
+                          <TableCell className="align-top font-mono text-xs">{e.entryDate}</TableCell>
                           <TableCell>
                             <Badge variant={FINANCE_KIND_VARIANT[e.kind]}>{FINANCE_KIND_LABEL[e.kind]}</Badge>
                           </TableCell>
-                          <TableCell className="text-sm">
+                          <TableCell className="align-top text-sm">
                             <PartyLink kind={e.fromKind} id={e.fromId} name={e.fromName} />
                           </TableCell>
-                          <TableCell className="text-sm">
+                          <TableCell className="align-top text-sm">
                             <PartyLink kind={e.toKind} id={e.toId} name={e.toName} />
                           </TableCell>
                           <TableCell>
@@ -519,7 +520,9 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                           >
                             {e.amount === null ? "···" : fmtLedgerAmount(e.amount, e.currency)}
                           </TableCell>
-                          <TableCell className="max-w-[220px] truncate">{e.note || "-"}</TableCell>
+                          <TableCell className="align-top min-w-[14rem]">
+                            <PurposeCell text={e.note} />
+                          </TableCell>
                           <TableCell className="text-muted-foreground">
                             {e.creatorName || e.createdBy?.displayName || "-"}
                           </TableCell>

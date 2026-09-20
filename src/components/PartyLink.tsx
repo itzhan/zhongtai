@@ -5,8 +5,8 @@ import { cn } from "@/lib/utils";
 
 export function partyHref(kind?: string | null, id?: number | null) {
   if (!id) return null;
-  if (kind === "member") return `/funds/members/${id}`;
-  if (kind === "partner") return `/funds/partners/${id}`;
+  if (kind === "member") return `/members/${id}`;
+  if (kind === "partner") return `/partners/${id}`;
   return null;
 }
 

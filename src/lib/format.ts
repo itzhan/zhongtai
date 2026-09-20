@@ -14,11 +14,9 @@ export function fmtLedgerAmount(n: number | null | undefined, currency?: string 
   return currency === "usdt" ? `${s} U` : s;
 }
 
-export function partyLabel(kind: string, name: string, _id?: number | null) {
-  const who = name.trim();
-  if (!who) return "-";
-  const tag = kind === "member" ? "成员" : kind === "partner" ? "伙伴" : "";
-  return tag ? `${who}（${tag}）` : who;
+export function partyLabel(_kind: string, name: string, _id?: number | null) {
+  const who = (name ?? "").trim();
+  return who || "-";
 }
 
 // Precise money: keeps full digits — used for unit prices and tooltips.

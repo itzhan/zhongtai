@@ -45,6 +45,7 @@ import { useList } from "@/hooks/use-list";
 import { api, mutate } from "@/lib/api-client";
 import PartyLink from "@/components/PartyLink";
 import PartyPicker from "@/components/PartyPicker";
+import PurposeCell from "@/components/PurposeCell";
 import { useMemberOptions, usePartnerOptions, useProjectOptions } from "@/hooks/use-options";
 import {
   FUND_CURRENCY,
@@ -264,8 +265,8 @@ export default function PurchasesPage() {
                         "-"
                       )}
                     </TableCell>
-                    <TableCell>
-                      <p className="truncate max-w-[220px]">{p.content || p.note || "-"}</p>
+                    <TableCell className="align-top min-w-[14rem]">
+                      <PurposeCell text={p.detail || p.content || p.note} />
                     </TableCell>
                     <TableCell className="text-right tabular-nums font-medium">
                       {p.totalAmount === null ? (
