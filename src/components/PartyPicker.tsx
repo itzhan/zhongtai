@@ -50,7 +50,7 @@ export default function PartyPicker({
           <SelectContent>
             {list.map((p) => (
               <SelectItem key={p.id} value={String(p.id)}>
-                #{p.id} {p.name}
+                {p.name}
               </SelectItem>
             ))}
           </SelectContent>

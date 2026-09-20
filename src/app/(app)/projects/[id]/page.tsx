@@ -81,8 +81,9 @@ import {
   type PartyKind,
   type ProjectStatus,
 } from "@/lib/enums";
+import PartyLink from "@/components/PartyLink";
 import PartyPicker from "@/components/PartyPicker";
-import { fmtLedgerAmount, fmtMoneyShort, partyLabel, todayStr } from "@/lib/format";
+import { fmtLedgerAmount, fmtMoneyShort, todayStr } from "@/lib/format";
 import { ROLES } from "@/lib/rbac";
 import type { Desk } from "../../desks/types";
 import { useMemberOptions, usePartnerOptions, useSupplierOptions } from "@/hooks/use-options";
@@ -174,6 +175,11 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
   const [entryFilter, setEntryFilter] = useState<"all" | FinanceKind>("all");
   const [creatorFilter, setCreatorFilter] = useState("all");
+  const [entryQ, setEntryQ] = useState("");
+  const [entryChannel, setEntryChannel] = useState("all");
+  const [entryFrom, setEntryFrom] = useState("");
+  const [entryTo, setEntryTo] = useState("");
+  const [entryParty, setEntryParty] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(10);
   const [entryOpen, setEntryOpen] = useState(false);
@@ -210,20 +216,43 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
   useEffect(() => {
     setPage(1);
-  }, [entryFilter, creatorFilter, pageSize]);
+  }, [entryFilter, creatorFilter, entryQ, entryChannel, entryFrom, entryTo, entryParty, pageSize]);
 
   const filteredEntries = useMemo(() => {
     const list = detail?.entries ?? [];
+    const needle = entryQ.trim().toLowerCase();
     return list.filter((e) => {
       if (entryFilter !== "all" && e.kind !== entryFilter) return false;
       if (creatorFilter !== "all" && e.creatorName !== creatorFilter) return false;
+      if (entryChannel !== "all" && e.channel !== entryChannel) return false;
+      if (entryFrom && e.entryDate < entryFrom) return false;
+      if (entryTo && e.entryDate > entryTo) return false;
+      if (entryParty !== "all") {
+        const [kind, id] = entryParty.split(":");
+        const match =
+          (e.fromKind === kind && String(e.fromId) === id) || (e.toKind === kind && String(e.toId) === id);
+        if (!match) return false;
+      }
+      if (needle) {
+        const hay = `${e.note} ${e.fromName ?? ""} ${e.toName ?? ""}`.toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
       return true;
     });
-  }, [detail?.entries, entryFilter, creatorFilter]);
+  }, [detail?.entries, entryFilter, creatorFilter, entryQ, entryChannel, entryFrom, entryTo, entryParty]);
 
   const creators = useMemo(() => {
     const names = new Set((detail?.entries ?? []).map((item) => item.creatorName).filter(Boolean));
     return [...names];
+  }, [detail?.entries]);
+
+  const entryParties = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const e of detail?.entries ?? []) {
+      if (e.fromId && e.fromName) map.set(`${e.fromKind}:${e.fromId}`, e.fromName);
+      if (e.toId && e.toName) map.set(`${e.toKind}:${e.toId}`, e.toName);
+    }
+    return [...map.entries()].map(([key, name]) => ({ key, name }));
   }, [detail?.entries]);
 
   const pageCount = Math.max(1, Math.ceil(filteredEntries.length / pageSize));
@@ -353,6 +382,12 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
             <CardHeader className="pb-3 flex-row items-center justify-between space-y-0 gap-3">
               <CardTitle className="text-base shrink-0">成本 / 收入记录</CardTitle>
               <div className="flex items-center justify-end gap-2 overflow-x-auto">
+                <Input
+                  className="h-8 w-40"
+                  placeholder="搜索用途 / 人名"
+                  value={entryQ}
+                  onChange={(e) => setEntryQ(e.target.value)}
+                />
                 <Select value={entryFilter} onValueChange={(v) => setEntryFilter(v as "all" | FinanceKind)}>
                   <SelectTrigger className="h-8 w-28">
                     <SelectValue />
@@ -363,6 +398,34 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                     <SelectItem value="cost">成本</SelectItem>
                   </SelectContent>
                 </Select>
+                <Select value={entryParty} onValueChange={setEntryParty}>
+                  <SelectTrigger className="h-8 w-36">
+                    <SelectValue placeholder="人员" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部人员</SelectItem>
+                    {entryParties.map((p) => (
+                      <SelectItem key={p.key} value={p.key}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={entryChannel} onValueChange={setEntryChannel}>
+                  <SelectTrigger className="h-8 w-28">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部渠道</SelectItem>
+                    {PAY_CHANNEL.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {PAY_CHANNEL_LABEL[c]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input type="date" className="h-8 w-36" value={entryFrom} onChange={(e) => setEntryFrom(e.target.value)} aria-label="开始日期" />
+                <Input type="date" className="h-8 w-36" value={entryTo} onChange={(e) => setEntryTo(e.target.value)} aria-label="结束日期" />
                 <Select value={creatorFilter} onValueChange={setCreatorFilter}>
                   <SelectTrigger className="h-8 w-32">
                     <SelectValue placeholder="录入人" />
@@ -405,7 +468,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
             </CardHeader>
             <CardContent className="p-0 border-t">
               {filteredEntries.length === 0 ? (
-                <Empty text="还没有记录" />
+                <Empty text={detail.entries.length === 0 ? "还没有记录" : "这个条件下没有记录"} />
               ) : (
                 <>
                   <Table>
@@ -430,10 +493,10 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                             <Badge variant={FINANCE_KIND_VARIANT[e.kind]}>{FINANCE_KIND_LABEL[e.kind]}</Badge>
                           </TableCell>
                           <TableCell className="text-sm">
-                            {partyLabel(e.fromKind ?? "", e.fromName ?? "", e.fromId)}
+                            <PartyLink kind={e.fromKind} id={e.fromId} name={e.fromName} />
                           </TableCell>
                           <TableCell className="text-sm">
-                            {partyLabel(e.toKind ?? "", e.toName ?? "", e.toId)}
+                            <PartyLink kind={e.toKind} id={e.toId} name={e.toName} />
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-wrap gap-1">

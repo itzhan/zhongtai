@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
-import { Loader2, MoreHorizontal, Plus, Receipt, ShoppingCart, TrendingUp } from "lucide-react";
+import { Loader2, MoreHorizontal, Plus, Receipt, Search, ShoppingCart, TrendingUp } from "lucide-react";
 import DataState from "@/components/DataState";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import PageHeader from "@/components/PageHeader";
@@ -42,6 +43,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useList } from "@/hooks/use-list";
 import { api, mutate } from "@/lib/api-client";
+import PartyLink from "@/components/PartyLink";
 import PartyPicker from "@/components/PartyPicker";
 import { useMemberOptions, usePartnerOptions, useProjectOptions } from "@/hooks/use-options";
 import {
@@ -55,13 +57,16 @@ import {
   type PartyKind,
   type PayChannel,
 } from "@/lib/enums";
-import { fmtLedgerAmount, fmtMoneyShort, partyLabel, todayStr, toCny } from "@/lib/format";
+import { fmtLedgerAmount, fmtMoneyShort, todayStr, toCny } from "@/lib/format";
 import type { Purchase } from "./types";
 
 export default function PurchasesPage() {
   const [projectId, setProjectId] = useState("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [q, setQ] = useState("");
+  const [channel, setChannel] = useState("all");
+  const [party, setParty] = useState("all");
 
   const path = useMemo(
     () =>
@@ -74,6 +79,31 @@ export default function PurchasesPage() {
   );
   const { items, loading, error, reload } = useList<Purchase>(path);
   const projects = useProjectOptions(true);
+  const visible = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return items.filter((p) => {
+      if (channel !== "all" && p.channel !== channel) return false;
+      if (party !== "all") {
+        const [kind, id] = party.split(":");
+        const match =
+          (p.fromKind === kind && String(p.fromId) === id) || (p.toKind === kind && String(p.toId) === id);
+        if (!match) return false;
+      }
+      if (needle) {
+        const hay = `${p.content || ""} ${p.note || ""} ${p.fromName || ""} ${p.toName || ""} ${p.project?.name || ""}`.toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
+      return true;
+    });
+  }, [items, q, channel, party]);
+  const parties = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of items) {
+      if (p.fromId && p.fromName) map.set(`${p.fromKind}:${p.fromId}`, p.fromName);
+      if (p.toId && p.toName) map.set(`${p.toKind}:${p.toId}`, p.toName);
+    }
+    return [...map.entries()].map(([key, name]) => ({ key, name }));
+  }, [items]);
 
   const [editing, setEditing] = useState<Purchase | null>(null);
   const [open, setOpen] = useState(false);
@@ -81,13 +111,13 @@ export default function PurchasesPage() {
   const [viewing, setViewing] = useState<Purchase | null>(null);
 
   const stats = useMemo(() => {
-    const amounts = items.map((p) => toCny(p.totalAmount ?? 0, p.currency));
+    const amounts = visible.map((p) => toCny(p.totalAmount ?? 0, p.currency));
     return {
       total: amounts.reduce((s, a) => s + a, 0),
-      count: items.length,
+      count: visible.length,
       max: amounts.length ? Math.max(...amounts) : 0,
     };
-  }, [items]);
+  }, [visible]);
 
   return (
     <>
@@ -126,6 +156,10 @@ export default function PurchasesPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input className="pl-8 w-48" placeholder="搜索用途 / 人名 / 项目" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
         <Select value={projectId} onValueChange={setProjectId}>
           <SelectTrigger className="w-44">
             <SelectValue placeholder="全部项目" />
@@ -135,6 +169,32 @@ export default function PurchasesPage() {
             {projects.map((p) => (
               <SelectItem key={p.id} value={String(p.id)}>
                 {p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={party} onValueChange={setParty}>
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="人员" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部人员</SelectItem>
+            {parties.map((p) => (
+              <SelectItem key={p.key} value={p.key}>
+                {p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={channel} onValueChange={setChannel}>
+          <SelectTrigger className="w-28">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部渠道</SelectItem>
+            {PAY_CHANNEL.map((c) => (
+              <SelectItem key={c} value={c}>
+                {PAY_CHANNEL_LABEL[c]}
               </SelectItem>
             ))}
           </SelectContent>
@@ -161,7 +221,7 @@ export default function PurchasesPage() {
           <DataState
             loading={loading}
             error={error}
-            empty={items.length === 0}
+            empty={visible.length === 0}
             emptyText="这个条件下还没有成本记录"
             onRetry={reload}
           >
@@ -179,12 +239,24 @@ export default function PurchasesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {items.map((p) => (
+                {visible.map((p) => (
                   <TableRow key={p.id} className="cursor-pointer" onClick={() => setViewing(p)}>
                     <TableCell className="font-mono text-xs">{p.purchaseDate}</TableCell>
-                    <TableCell className="font-medium">{p.project?.name ?? "-"}</TableCell>
-                    <TableCell className="text-sm">{partyLabel(p.fromKind ?? "", p.fromName ?? "", p.fromId)}</TableCell>
-                    <TableCell className="text-sm">{partyLabel(p.toKind ?? "", p.toName ?? "", p.toId)}</TableCell>
+                    <TableCell className="font-medium">
+                      {p.project ? (
+                        <Link href={`/projects/${p.project.id}`} className="hover:text-primary" onClick={(e) => e.stopPropagation()}>
+                          {p.project.name}
+                        </Link>
+                      ) : (
+                        "-"
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      <PartyLink kind={p.fromKind} id={p.fromId} name={p.fromName} />
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      <PartyLink kind={p.toKind} id={p.toId} name={p.toName} />
+                    </TableCell>
                     <TableCell>
                       {isOneOf(PAY_CHANNEL, p.channel) ? (
                         <Badge variant={PAY_CHANNEL_VARIANT[p.channel]}>{PAY_CHANNEL_LABEL[p.channel]}</Badge>
@@ -245,10 +317,21 @@ export default function PurchasesPage() {
           {viewing && (
             <div className="space-y-4 text-sm">
               <div className="grid grid-cols-2 gap-4">
-                <Info label="项目" value={viewing.project?.name ?? "-"} />
+                <Info
+                  label="项目"
+                  value={
+                    viewing.project ? (
+                      <Link href={`/projects/${viewing.project.id}`} className="hover:text-primary">
+                        {viewing.project.name}
+                      </Link>
+                    ) : (
+                      "-"
+                    )
+                  }
+                />
                 <Info label="日期" value={viewing.purchaseDate} />
-                <Info label="转出" value={partyLabel(viewing.fromKind ?? "", viewing.fromName ?? "", viewing.fromId)} />
-                <Info label="转入" value={partyLabel(viewing.toKind ?? "", viewing.toName ?? "", viewing.toId)} />
+                <Info label="转出" value={<PartyLink kind={viewing.fromKind} id={viewing.fromId} name={viewing.fromName} />} />
+                <Info label="转入" value={<PartyLink kind={viewing.toKind} id={viewing.toId} name={viewing.toName} />} />
                 <Info
                   label="渠道"
                   value={isOneOf(PAY_CHANNEL, viewing.channel) ? PAY_CHANNEL_LABEL[viewing.channel] : "-"}
@@ -290,7 +373,7 @@ export default function PurchasesPage() {
   );
 }
 
-function Info({ label, value }: { label: string; value: string }) {
+function Info({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
       <p className="text-xs text-muted-foreground">{label}</p>

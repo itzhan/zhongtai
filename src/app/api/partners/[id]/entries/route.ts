@@ -13,7 +13,7 @@ const INCLUDE = {
 } as const;
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const g = await requireRole(ROLES.FINANCE);
+  const g = await requireRole(ROLES.SALES, ROLES.RESOURCE, ROLES.FINANCE);
   if (!g.ok) return g.res;
   const id = parseId((await ctx.params).id);
   if (!id) return badRequest("id 非法");

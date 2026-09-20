@@ -14,10 +14,10 @@ export function fmtLedgerAmount(n: number | null | undefined, currency?: string 
   return currency === "usdt" ? `${s} U` : s;
 }
 
-export function partyLabel(kind: string, name: string, id?: number | null) {
-  if (!kind && !name) return "-";
+export function partyLabel(kind: string, name: string, _id?: number | null) {
+  const who = name.trim();
+  if (!who) return "-";
   const tag = kind === "member" ? "成员" : kind === "partner" ? "伙伴" : "";
-  const who = name || (id ? `#${id}` : "-");
   return tag ? `${who}（${tag}）` : who;
 }
 

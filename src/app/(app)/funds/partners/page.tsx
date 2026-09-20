@@ -1,9 +1,11 @@
 "use client";
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { MoreHorizontal, Plus, Search } from "lucide-react";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import DataState from "@/components/DataState";
+import RoleGate from "@/components/RoleGate";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -15,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useDebounced } from "@/hooks/use-debounced";
 import { useList } from "@/hooks/use-list";
 import { api, mutate } from "@/lib/api-client";
+import { ROLES } from "@/lib/rbac";
 
 interface PartnerRow {
   id: number;
@@ -24,6 +27,7 @@ interface PartnerRow {
 }
 
 export default function PartnersPage() {
+  const router = useRouter();
   const [q, setQ] = useState("");
   const debounced = useDebounced(q);
   const path = useMemo(() => `/api/partners?q=${encodeURIComponent(debounced)}`, [debounced]);
@@ -51,10 +55,12 @@ export default function PartnersPage() {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input className="pl-8 w-56" placeholder="搜索名称 / 联系方式" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
-        <Button className="rounded-full ml-auto" onClick={() => start(null)}>
-          <Plus size={14} />
-          新增伙伴
-        </Button>
+        <RoleGate roles={[ROLES.FINANCE]}>
+          <Button className="rounded-full ml-auto" onClick={() => start(null)}>
+            <Plus size={14} />
+            新增伙伴
+          </Button>
+        </RoleGate>
       </div>
       <DataState loading={loading} error={error} empty={!items.length} emptyText="还没有合作伙伴" onRetry={reload}>
         <Card>
@@ -62,7 +68,6 @@ export default function PartnersPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-20">ID</TableHead>
                   <TableHead>名称</TableHead>
                   <TableHead>联系方式</TableHead>
                   <TableHead>备注</TableHead>
@@ -71,16 +76,16 @@ export default function PartnersPage() {
               </TableHeader>
               <TableBody>
                 {items.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell className="font-mono tabular-nums">#{row.id}</TableCell>
+                  <TableRow key={row.id} className="cursor-pointer" onClick={() => router.push(`/funds/partners/${row.id}`)}>
                     <TableCell className="font-medium">
-                      <Link href={`/funds/partners/${row.id}`} className="hover:text-primary">
+                      <Link href={`/funds/partners/${row.id}`} className="hover:text-primary" onClick={(e) => e.stopPropagation()}>
                         {row.name}
                       </Link>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{row.contact || "-"}</TableCell>
                     <TableCell className="max-w-[280px] truncate text-muted-foreground">{row.note || "-"}</TableCell>
-                    <TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <RoleGate roles={[ROLES.FINANCE]}>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button size="icon-sm" variant="ghost" aria-label="更多">
@@ -94,6 +99,7 @@ export default function PartnersPage() {
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
+                      </RoleGate>
                     </TableCell>
                   </TableRow>
                 ))}

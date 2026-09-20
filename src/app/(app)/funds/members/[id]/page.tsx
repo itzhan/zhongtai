@@ -45,7 +45,7 @@ export default function MemberDetailPage({ params }: { params: Promise<{ id: str
       <PageHeader
         back="/funds/members"
         title={item?.name ?? "成员详情"}
-        subtitle={item ? `ID #${item.id}${item.contact ? ` · ${item.contact}` : ""}` : undefined}
+        subtitle={item?.contact || undefined}
       />
       <DataState loading={loading} error={error} empty={!item} onRetry={() => location.reload()}>
         {item && (

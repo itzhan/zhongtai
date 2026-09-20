@@ -44,7 +44,7 @@ export default function PartnerDetailPage({ params }: { params: Promise<{ id: st
       <PageHeader
         back="/funds/partners"
         title={item?.name ?? "伙伴详情"}
-        subtitle={item ? `ID #${item.id}${item.contact ? ` · ${item.contact}` : ""}` : undefined}
+        subtitle={item?.contact || undefined}
       />
       <DataState loading={loading} error={error} empty={!item} onRetry={() => location.reload()}>
         {item && (

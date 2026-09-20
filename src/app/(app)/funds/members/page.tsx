@@ -1,9 +1,11 @@
 "use client";
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { MoreHorizontal, Plus, Search } from "lucide-react";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import DataState from "@/components/DataState";
+import RoleGate from "@/components/RoleGate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,11 +13,13 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useDebounced } from "@/hooks/use-debounced";
 import { useList } from "@/hooks/use-list";
 import { api, mutate } from "@/lib/api-client";
+import { ROLES } from "@/lib/rbac";
 
 interface Member {
   id: number;
@@ -26,10 +30,21 @@ interface Member {
 }
 
 export default function MembersPage() {
+  const router = useRouter();
   const [q, setQ] = useState("");
+  const [status, setStatus] = useState("all");
   const debounced = useDebounced(q);
   const path = useMemo(() => `/api/members?q=${encodeURIComponent(debounced)}`, [debounced]);
   const { items, loading, error, reload } = useList<Member>(path);
+  const visible = useMemo(
+    () =>
+      items.filter((row) => {
+        if (status === "active") return row.active;
+        if (status === "inactive") return !row.active;
+        return true;
+      }),
+    [items, status],
+  );
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Member | null>(null);
   const [deleting, setDeleting] = useState<Member | null>(null);
@@ -53,18 +68,29 @@ export default function MembersPage() {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input className="pl-8 w-56" placeholder="搜索姓名 / 联系方式" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
-        <Button className="rounded-full ml-auto" onClick={() => start(null)}>
-          <Plus size={14} />
-          新增成员
-        </Button>
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger className="w-28">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">全部状态</SelectItem>
+            <SelectItem value="active">在用</SelectItem>
+            <SelectItem value="inactive">停用</SelectItem>
+          </SelectContent>
+        </Select>
+        <RoleGate roles={[ROLES.FINANCE]}>
+          <Button className="rounded-full ml-auto" onClick={() => start(null)}>
+            <Plus size={14} />
+            新增成员
+          </Button>
+        </RoleGate>
       </div>
-      <DataState loading={loading} error={error} empty={!items.length} emptyText="还没有团队成员" onRetry={reload}>
+      <DataState loading={loading} error={error} empty={!visible.length} emptyText="这个条件下没有成员" onRetry={reload}>
         <Card>
           <CardContent className="p-0">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-20">ID</TableHead>
                   <TableHead>姓名</TableHead>
                   <TableHead>联系方式</TableHead>
                   <TableHead>备注</TableHead>
@@ -73,11 +99,10 @@ export default function MembersPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {items.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell className="font-mono tabular-nums">#{row.id}</TableCell>
+                {visible.map((row) => (
+                  <TableRow key={row.id} className="cursor-pointer" onClick={() => router.push(`/funds/members/${row.id}`)}>
                     <TableCell className="font-medium">
-                      <Link href={`/funds/members/${row.id}`} className="hover:text-primary">
+                      <Link href={`/funds/members/${row.id}`} className="hover:text-primary" onClick={(e) => e.stopPropagation()}>
                         {row.name}
                       </Link>
                     </TableCell>
@@ -86,7 +111,8 @@ export default function MembersPage() {
                     <TableCell>
                       <Badge variant={row.active ? "success" : "secondary"}>{row.active ? "在用" : "停用"}</Badge>
                     </TableCell>
-                    <TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <RoleGate roles={[ROLES.FINANCE]}>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button size="icon-sm" variant="ghost" aria-label="更多">
@@ -100,6 +126,7 @@ export default function MembersPage() {
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
+                      </RoleGate>
                     </TableCell>
                   </TableRow>
                 ))}

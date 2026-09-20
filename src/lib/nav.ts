@@ -66,8 +66,8 @@ export const NAV: NavEntry[] = [
     match: "/funds",
     sub: [
       { href: "/funds", label: "资金头寸" },
-      { href: "/funds/members", label: "团队成员" },
-      { href: "/funds/partners", label: "合作伙伴" },
+      { href: "/funds/members", label: "团队成员", roles: [SALES, RESOURCE, FINANCE] },
+      { href: "/funds/partners", label: "合作伙伴", roles: [SALES, RESOURCE, FINANCE] },
     ],
   },
   {
