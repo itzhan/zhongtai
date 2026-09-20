@@ -189,7 +189,7 @@ export default function LedgerEntriesTable({
               const outgoing = row.fromKind === selfKind && row.fromId === selfId;
               return (
                 <TableRow key={row.id}>
-                  <TableCell className="align-top font-mono text-xs">{row.entryDate}</TableCell>
+                  <TableCell className="font-mono text-xs">{row.entryDate}</TableCell>
                   <TableCell>
                     <Badge variant={FINANCE_KIND_VARIANT[(row.kind as FinanceKind) ?? "cost"]}>
                       {FINANCE_KIND_LABEL[(row.kind as FinanceKind) ?? "cost"] ?? row.kind}

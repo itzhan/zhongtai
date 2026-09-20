@@ -492,14 +492,14 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                     <TableBody>
                       {pagedEntries.map((e) => (
                         <TableRow key={e.id}>
-                          <TableCell className="align-top font-mono text-xs">{e.entryDate}</TableCell>
+                          <TableCell className="font-mono text-xs">{e.entryDate}</TableCell>
                           <TableCell>
                             <Badge variant={FINANCE_KIND_VARIANT[e.kind]}>{FINANCE_KIND_LABEL[e.kind]}</Badge>
                           </TableCell>
-                          <TableCell className="align-top text-sm">
+                          <TableCell className="text-sm">
                             <PartyLink kind={e.fromKind} id={e.fromId} name={e.fromName} />
                           </TableCell>
-                          <TableCell className="align-top text-sm">
+                          <TableCell className="text-sm">
                             <PartyLink kind={e.toKind} id={e.toId} name={e.toName} />
                           </TableCell>
                           <TableCell>
