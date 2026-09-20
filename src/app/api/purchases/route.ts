@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { badRequest, requireRole, requireRoleFresh } from "@/lib/guard";
+import { parseEntryMoment } from "@/lib/format";
 import { parseTransfer } from "@/lib/ledger";
 import { jsonItem } from "@/lib/mask";
 import { ROLES } from "@/lib/rbac";
@@ -19,8 +20,6 @@ const INCLUDE = {
   createdBy: { select: { id: true, displayName: true } },
 } as const;
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
 function toPurchaseShape(row: {
   id: number;
   projectId: number;
@@ -37,6 +36,8 @@ function toPurchaseShape(row: {
   toKind?: string;
   toId?: number | null;
   toName?: string;
+  entryAt?: Date | string | null;
+  createdAt?: Date | string;
   project: { id: number; code: string; name: string } | null;
   createdBy: { id: number; displayName: string } | null;
 }) {
@@ -61,6 +62,8 @@ function toPurchaseShape(row: {
     amount: row.amount,
     note: row.note,
     entryDate: row.entryDate,
+    entryAt: row.entryAt ?? null,
+    createdAt: row.createdAt ?? null,
     currency: row.currency ?? "cny",
     channel: row.channel ?? "",
     fromKind: row.fromKind ?? "",
@@ -148,10 +151,9 @@ export async function POST(req: Request) {
   const amount = Number(body.amount ?? body.totalAmount);
   if (!Number.isFinite(amount) || amount < 0) return badRequest("金额非法");
 
-  const entryDate = body.entryDate || body.purchaseDate;
-  if (!entryDate || !DATE_RE.test(entryDate)) {
-    return badRequest("日期格式应为 YYYY-MM-DD");
-  }
+  const moment = parseEntryMoment(String(body.entryDate || body.purchaseDate || ""));
+  if (!moment) return badRequest("请填写发生时间");
+  const { entryDate, entryAt } = moment;
 
   const note = (body.note ?? body.detail ?? body.content ?? "").trim();
   if (!note) return badRequest("请填写花销说明");
@@ -169,6 +171,7 @@ export async function POST(req: Request) {
       amount,
       note,
       entryDate,
+      entryAt,
       createdById: g.session.id,
       creatorName,
       ...transfer,

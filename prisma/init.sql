@@ -62,6 +62,7 @@ CREATE TABLE "FinanceEntry" (
     "toName" TEXT NOT NULL DEFAULT '',
     "note" TEXT NOT NULL DEFAULT '',
     "entryDate" TEXT NOT NULL,
+    "entryAt" DATETIME,
     "costSource" TEXT NOT NULL DEFAULT 'self',
     "supplierId" INTEGER,
     "createdById" INTEGER,

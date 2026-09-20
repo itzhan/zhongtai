@@ -155,8 +155,10 @@ model FinanceEntry {
   toName      String   @default("")
   /// 这笔钱是干啥的
   note        String   @default("")
-  /// 业务日 "YYYY-MM-DD"
+  /// 业务日 "YYYY-MM-DD"（筛选/汇总仍用这一列）
   entryDate   String
+  /// 发生时刻，精确到分。展示用；空则回落 createdAt
+  entryAt     DateTime?
   /// self 自产 | supplier 供应商。仅 kind=cost 有意义（旧字段，新记账以转出/转入为准）
   costSource  String   @default("self")
   supplierId  Int?

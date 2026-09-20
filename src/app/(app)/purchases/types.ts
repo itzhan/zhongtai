@@ -20,6 +20,8 @@ export interface Purchase {
   amount?: number | null;
   note?: string;
   entryDate?: string;
+  entryAt?: string | null;
+  createdAt?: string | null;
   currency?: string;
   channel?: string;
   fromKind?: string;

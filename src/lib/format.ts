@@ -76,6 +76,62 @@ export function todayStr(): string {
   }).format(new Date());
 }
 
+function shanghaiParts(d: Date) {
+  const day = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+  const time = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Shanghai",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(d);
+  return { day, time };
+}
+
+/// 账单发生时刻，精确到分：2026-09-20 14:30
+export function fmtMinute(d: Date | string | null | undefined, fallbackDate?: string): string {
+  if (d) {
+    const date = typeof d === "string" ? new Date(d) : d;
+    if (!isNaN(date.getTime())) {
+      const { day, time } = shanghaiParts(date);
+      return `${day} ${time}`;
+    }
+  }
+  return fallbackDate || "-";
+}
+
+export function nowDatetimeLocal(): string {
+  const { day, time } = shanghaiParts(new Date());
+  return `${day}T${time}`;
+}
+
+export function toDatetimeLocal(d: Date | string | null | undefined, fallbackDate?: string): string {
+  if (d) {
+    const date = typeof d === "string" ? new Date(d) : d;
+    if (!isNaN(date.getTime())) {
+      const { day, time } = shanghaiParts(date);
+      return `${day}T${time}`;
+    }
+  }
+  if (fallbackDate && /^\d{4}-\d{2}-\d{2}$/.test(fallbackDate)) return `${fallbackDate}T00:00`;
+  return nowDatetimeLocal();
+}
+
+export function parseEntryMoment(raw: string): { entryDate: string; entryAt: Date } | null {
+  const s = raw.trim().replace(" ", "T");
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2})(?::\d{2})?)?/);
+  if (!m) return null;
+  const entryDate = m[1];
+  const hm = m[2] ?? "00:00";
+  const entryAt = new Date(`${entryDate}T${hm}:00+08:00`);
+  if (isNaN(entryAt.getTime())) return null;
+  return { entryDate, entryAt };
+}
+
 // Compact date: just MM-DD HH:mm for table rows.
 export function fmtDateShort(d: Date | string | null | undefined): string {
   if (!d) return "-";

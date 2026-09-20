@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { badRequest, notFound, parseId, requireRoleFresh } from "@/lib/guard";
+import { parseEntryMoment } from "@/lib/format";
 import { parseTransfer } from "@/lib/ledger";
 import { jsonItem } from "@/lib/mask";
 import { ROLES } from "@/lib/rbac";
@@ -11,8 +12,6 @@ const INCLUDE = {
   project: { select: { id: true, code: true, name: true } },
   createdBy: { select: { id: true, displayName: true } },
 } as const;
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function toPurchaseShape(row: {
   id: number;
@@ -30,6 +29,8 @@ function toPurchaseShape(row: {
   toKind?: string;
   toId?: number | null;
   toName?: string;
+  entryAt?: Date | string | null;
+  createdAt?: Date | string;
   project: { id: number; code: string; name: string } | null;
   createdBy: { id: number; displayName: string } | null;
 }) {
@@ -54,6 +55,8 @@ function toPurchaseShape(row: {
     amount: row.amount,
     note: row.note,
     entryDate: row.entryDate,
+    entryAt: row.entryAt ?? null,
+    createdAt: row.createdAt ?? null,
     currency: row.currency ?? "cny",
     channel: row.channel ?? "",
     fromKind: row.fromKind ?? "",
@@ -107,9 +110,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   const entryDate = body.entryDate ?? body.purchaseDate;
   if (entryDate !== undefined) {
-    const d = String(entryDate);
-    if (!DATE_RE.test(d)) return badRequest("日期格式应为 YYYY-MM-DD");
-    data.entryDate = d;
+    const moment = parseEntryMoment(String(entryDate));
+    if (!moment) return badRequest("请填写发生时间");
+    data.entryDate = moment.entryDate;
+    data.entryAt = moment.entryAt;
   }
 
   if (body.purchaserName !== undefined) {

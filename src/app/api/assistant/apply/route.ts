@@ -12,11 +12,9 @@ import { parseTransfer } from "@/lib/ledger";
 import { COST_SOURCE, isOneOf, serializeSupplierCategories } from "@/lib/enums";
 import { DESK_INCLUDE, SUPPLIER_INCLUDE } from "@/lib/partner";
 import { ROLES, type Role } from "@/lib/rbac";
-import { todayStr } from "@/lib/format";
+import { parseEntryMoment, todayStr } from "@/lib/format";
 
 export const runtime = "nodejs";
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function POST(req: Request) {
   const g = await requireRoleFresh(ROLES.FINANCE);
@@ -66,8 +64,9 @@ async function applyOne(
       if (!projectId) throw new Error("项目无效");
       const amount = Number(raw.amount);
       if (!Number.isFinite(amount) || amount < 0) throw new Error("金额非法");
-      const entryDate = String(raw.entryDate || todayStr());
-      if (!DATE_RE.test(entryDate)) throw new Error("日期格式非法");
+      const moment = parseEntryMoment(String(raw.entryDate || todayStr()));
+      if (!moment) throw new Error("日期格式非法");
+      const { entryDate, entryAt } = moment;
       const note = String(raw.note ?? "").trim();
       if (!note) throw new Error("说明不能为空");
       if (!(await prisma.project.findFirst({ where: { id: projectId, deletedAt: null } }))) {
@@ -98,6 +97,7 @@ async function applyOne(
           amount,
           note,
           entryDate,
+          entryAt,
           costSource,
           supplierId,
           createdById: session.id,

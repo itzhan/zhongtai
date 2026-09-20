@@ -84,7 +84,7 @@ import {
 import PartyLink from "@/components/PartyLink";
 import PartyPicker from "@/components/PartyPicker";
 import PurposeCell from "@/components/PurposeCell";
-import { fmtLedgerAmount, fmtMoneyShort, todayStr } from "@/lib/format";
+import { fmtLedgerAmount, fmtMinute, fmtMoneyShort, nowDatetimeLocal, toDatetimeLocal } from "@/lib/format";
 import { ROLES } from "@/lib/rbac";
 import type { Desk } from "../../desks/types";
 import { useMemberOptions, usePartnerOptions, useSupplierOptions } from "@/hooks/use-options";
@@ -124,6 +124,8 @@ interface Entry {
   toName?: string;
   note: string;
   entryDate: string;
+  entryAt?: string | null;
+  createdAt?: string;
   creatorName: string;
   costSource?: CostSource | string;
   supplierId?: number | null;
@@ -178,7 +180,6 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const [error, setError] = useState<string | null>(null);
 
   const [entryFilter, setEntryFilter] = useState<"all" | FinanceKind>("all");
-  const [creatorFilter, setCreatorFilter] = useState("all");
   const [entryQ, setEntryQ] = useState("");
   const [entryChannel, setEntryChannel] = useState("all");
   const [entryFrom, setEntryFrom] = useState("");
@@ -220,14 +221,13 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
   useEffect(() => {
     setPage(1);
-  }, [entryFilter, creatorFilter, entryQ, entryChannel, entryFrom, entryTo, entryParty, pageSize]);
+  }, [entryFilter, entryQ, entryChannel, entryFrom, entryTo, entryParty, pageSize]);
 
   const filteredEntries = useMemo(() => {
     const list = detail?.entries ?? [];
     const needle = entryQ.trim().toLowerCase();
     return list.filter((e) => {
       if (entryFilter !== "all" && e.kind !== entryFilter) return false;
-      if (creatorFilter !== "all" && e.creatorName !== creatorFilter) return false;
       if (entryChannel !== "all" && e.channel !== entryChannel) return false;
       if (entryFrom && e.entryDate < entryFrom) return false;
       if (entryTo && e.entryDate > entryTo) return false;
@@ -243,12 +243,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
       }
       return true;
     });
-  }, [detail?.entries, entryFilter, creatorFilter, entryQ, entryChannel, entryFrom, entryTo, entryParty]);
-
-  const creators = useMemo(() => {
-    const names = new Set((detail?.entries ?? []).map((item) => item.creatorName).filter(Boolean));
-    return [...names];
-  }, [detail?.entries]);
+  }, [detail?.entries, entryFilter, entryQ, entryChannel, entryFrom, entryTo, entryParty]);
 
   const entryParties = useMemo(() => {
     const map = new Map<string, string>();
@@ -430,19 +425,6 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                 </Select>
                 <Input type="date" className="h-8 w-36" value={entryFrom} onChange={(e) => setEntryFrom(e.target.value)} aria-label="开始日期" />
                 <Input type="date" className="h-8 w-36" value={entryTo} onChange={(e) => setEntryTo(e.target.value)} aria-label="结束日期" />
-                <Select value={creatorFilter} onValueChange={setCreatorFilter}>
-                  <SelectTrigger className="h-8 w-32">
-                    <SelectValue placeholder="录入人" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">全部录入人</SelectItem>
-                    {creators.map((name) => (
-                      <SelectItem key={name} value={name}>
-                        {name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
                 <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v) as (typeof PAGE_SIZES)[number])}>
                   <SelectTrigger className="h-8 w-20">
                     <SelectValue />
@@ -478,21 +460,19 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>日期</TableHead>
                         <TableHead>方向</TableHead>
                         <TableHead>转出</TableHead>
                         <TableHead>转入</TableHead>
                         <TableHead>渠道</TableHead>
                         <TableHead className="text-right">金额</TableHead>
                         <TableHead>用途</TableHead>
-                        <TableHead>录入人</TableHead>
+                        <TableHead>时间</TableHead>
                         <TableHead className="w-10" />
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {pagedEntries.map((e) => (
                         <TableRow key={e.id}>
-                          <TableCell className="font-mono text-xs">{e.entryDate}</TableCell>
                           <TableCell>
                             <Badge variant={FINANCE_KIND_VARIANT[e.kind]}>{FINANCE_KIND_LABEL[e.kind]}</Badge>
                           </TableCell>
@@ -523,8 +503,8 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                           <TableCell className="align-top min-w-[14rem]">
                             <PurposeCell text={e.note} />
                           </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {e.creatorName || e.createdBy?.displayName || "-"}
+                          <TableCell className="font-mono text-xs whitespace-nowrap">
+                            {fmtMinute(e.entryAt || e.createdAt, e.entryDate)}
                           </TableCell>
                           <TableCell>
                             {canWriteEntry(e.kind) && (
@@ -884,7 +864,7 @@ function EntryDialog({
     setCurrency((initial?.currency as FundCurrency) || "cny");
     setChannel((initial?.channel as PayChannel) || "");
     setAmount(initial?.amount != null ? String(initial.amount) : "");
-    setEntryDate(initial?.entryDate ?? todayStr());
+    setEntryDate(initial ? toDatetimeLocal(initial.entryAt, initial.entryDate) : nowDatetimeLocal());
     setNote(initial?.note ?? "");
   }, [open, initial, defaultKind]);
 
@@ -1023,8 +1003,8 @@ function EntryDialog({
                 onChange={(e) => setAmount(e.target.value)}
               />
             </Field>
-            <Field label="日期" required>
-              <Input type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} />
+            <Field label="时间" required>
+              <Input type="datetime-local" step={60} value={entryDate} onChange={(e) => setEntryDate(e.target.value)} />
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-3">

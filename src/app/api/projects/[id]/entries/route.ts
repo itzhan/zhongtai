@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { badRequest, notFound, parseId, requireRole, requireRoleFresh } from "@/lib/guard";
 import { COST_SOURCE, FINANCE_KIND, isOneOf } from "@/lib/enums";
+import { parseEntryMoment } from "@/lib/format";
 import { parseTransfer } from "@/lib/ledger";
 import { jsonItem, maskMany } from "@/lib/mask";
 import { ROLES } from "@/lib/rbac";
@@ -14,7 +15,6 @@ const INCLUDE = {
   supplier: { select: { id: true, name: true } },
 } as const;
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const PAGE_SIZES = new Set([10, 30, 50, 100]);
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -98,10 +98,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const amount = Number(body.amount);
   if (!Number.isFinite(amount) || amount < 0) return badRequest("金额非法");
-  const entryDate = String(body.entryDate ?? "");
-  if (!DATE_RE.test(entryDate)) {
-    return badRequest("日期格式应为 YYYY-MM-DD");
-  }
+  const moment = parseEntryMoment(String(body.entryDate ?? body.entryAt ?? ""));
+  if (!moment) return badRequest("请填写发生时间");
+  const { entryDate, entryAt } = moment;
   const note = String(body.note ?? "").trim();
   if (!note) return badRequest("请填写这笔钱是干啥的");
 
@@ -129,6 +128,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       amount,
       note,
       entryDate,
+      entryAt,
       costSource,
       supplierId,
       createdById: g.session.id,

@@ -23,7 +23,7 @@ import {
   type FundCurrency,
   type PayChannel,
 } from "@/lib/enums";
-import { fmtLedgerAmount, toCny } from "@/lib/format";
+import { fmtLedgerAmount, fmtMinute, toCny } from "@/lib/format";
 
 export interface LedgerRow {
   id: number;
@@ -39,6 +39,8 @@ export interface LedgerRow {
   toName: string;
   note: string;
   entryDate: string;
+  entryAt?: string | null;
+  createdAt?: string;
   project?: { id: number; code: string; name: string } | null;
 }
 
@@ -174,13 +176,13 @@ export default function LedgerEntriesTable({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>日期</TableHead>
               <TableHead>方向</TableHead>
               <TableHead>对方</TableHead>
               <TableHead>项目</TableHead>
               <TableHead>渠道</TableHead>
               <TableHead className="text-right">金额</TableHead>
               <TableHead>用途</TableHead>
+              <TableHead>时间</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -189,7 +191,6 @@ export default function LedgerEntriesTable({
               const outgoing = row.fromKind === selfKind && row.fromId === selfId;
               return (
                 <TableRow key={row.id}>
-                  <TableCell className="font-mono text-xs">{row.entryDate}</TableCell>
                   <TableCell>
                     <Badge variant={FINANCE_KIND_VARIANT[(row.kind as FinanceKind) ?? "cost"]}>
                       {FINANCE_KIND_LABEL[(row.kind as FinanceKind) ?? "cost"] ?? row.kind}
@@ -229,6 +230,9 @@ export default function LedgerEntriesTable({
                   </TableCell>
                   <TableCell className="align-top min-w-[14rem]">
                     <PurposeCell text={row.note} />
+                  </TableCell>
+                  <TableCell className="font-mono text-xs whitespace-nowrap">
+                    {fmtMinute(row.entryAt || row.createdAt, row.entryDate)}
                   </TableCell>
                 </TableRow>
               );

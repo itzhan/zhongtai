@@ -92,6 +92,7 @@ const MANIFEST = [
       ["toKind", '"toKind" TEXT NOT NULL DEFAULT \'\''],
       ["toId", '"toId" INTEGER'],
       ["toName", '"toName" TEXT NOT NULL DEFAULT \'\''],
+      ["entryAt", '"entryAt" DATETIME'],
     ],
   },
   {
@@ -329,6 +330,12 @@ async function main() {
     await prisma.$executeRawUnsafe(
       'CREATE INDEX IF NOT EXISTS "FinanceEntry_toKind_toId_idx" ON "FinanceEntry"("toKind", "toId")',
     );
+    const cols = await existingCols("FinanceEntry");
+    if (cols.has("entryAt") && cols.has("createdAt")) {
+      await prisma.$executeRawUnsafe(
+        'UPDATE "FinanceEntry" SET "entryAt" = "createdAt" WHERE "entryAt" IS NULL',
+      );
+    }
   }
 
   await migrateDeskProjects();

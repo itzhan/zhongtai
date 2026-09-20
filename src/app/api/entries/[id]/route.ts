@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { badRequest, forbidden, notFound, parseId, requireRoleFresh } from "@/lib/guard";
 import { COST_SOURCE, FINANCE_KIND, isOneOf } from "@/lib/enums";
+import { parseEntryMoment } from "@/lib/format";
 import { parseTransfer } from "@/lib/ledger";
 import { jsonItem } from "@/lib/mask";
 import { ROLES } from "@/lib/rbac";
@@ -13,8 +14,6 @@ const INCLUDE = {
   createdBy: { select: { id: true, displayName: true } },
   supplier: { select: { id: true, name: true } },
 } as const;
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function canWriteKind(role: string, kind: string): boolean {
   if (role === ROLES.ADMIN || role === ROLES.FINANCE) return true;
@@ -95,10 +94,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       data.supplierId = null;
     }
   }
-  if (body.entryDate !== undefined) {
-    const entryDate = String(body.entryDate);
-    if (!DATE_RE.test(entryDate)) return badRequest("日期格式应为 YYYY-MM-DD");
-    data.entryDate = entryDate;
+  if (body.entryDate !== undefined || body.entryAt !== undefined) {
+    const moment = parseEntryMoment(String(body.entryDate ?? body.entryAt ?? ""));
+    if (!moment) return badRequest("请填写发生时间");
+    data.entryDate = moment.entryDate;
+    data.entryAt = moment.entryAt;
   }
 
   const item = await prisma.financeEntry.update({

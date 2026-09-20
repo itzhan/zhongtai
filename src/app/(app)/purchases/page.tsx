@@ -58,7 +58,7 @@ import {
   type PartyKind,
   type PayChannel,
 } from "@/lib/enums";
-import { fmtLedgerAmount, fmtMoneyShort, todayStr, toCny } from "@/lib/format";
+import { fmtLedgerAmount, fmtMinute, fmtMoneyShort, nowDatetimeLocal, toCny, toDatetimeLocal } from "@/lib/format";
 import type { Purchase } from "./types";
 
 export default function PurchasesPage() {
@@ -229,20 +229,19 @@ export default function PurchasesPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>日期</TableHead>
                   <TableHead>项目</TableHead>
                   <TableHead>转出</TableHead>
                   <TableHead>转入</TableHead>
                   <TableHead>渠道</TableHead>
                   <TableHead>说明</TableHead>
                   <TableHead className="text-right">金额</TableHead>
+                  <TableHead>时间</TableHead>
                   <TableHead className="w-10" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {visible.map((p) => (
                   <TableRow key={p.id} className="cursor-pointer" onClick={() => setViewing(p)}>
-                    <TableCell className="font-mono text-xs">{p.purchaseDate}</TableCell>
                     <TableCell className="font-medium">
                       {p.project ? (
                         <Link href={`/projects/${p.project.id}`} className="hover:text-primary" onClick={(e) => e.stopPropagation()}>
@@ -274,6 +273,9 @@ export default function PurchasesPage() {
                       ) : (
                         fmtLedgerAmount(p.totalAmount, p.currency)
                       )}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs whitespace-nowrap">
+                      {fmtMinute(p.entryAt || p.createdAt, p.purchaseDate || p.entryDate)}
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <DropdownMenu>
@@ -330,7 +332,7 @@ export default function PurchasesPage() {
                     )
                   }
                 />
-                <Info label="日期" value={viewing.purchaseDate} />
+                <Info label="时间" value={fmtMinute(viewing.entryAt || viewing.createdAt, viewing.purchaseDate || viewing.entryDate)} />
                 <Info label="转出" value={<PartyLink kind={viewing.fromKind} id={viewing.fromId} name={viewing.fromName} />} />
                 <Info label="转入" value={<PartyLink kind={viewing.toKind} id={viewing.toId} name={viewing.toName} />} />
                 <Info
@@ -415,7 +417,7 @@ function CostDialog({
     setProjectId(initial?.projectId ? String(initial.projectId) : "");
     setNote(initial?.detail || initial?.content || initial?.note || "");
     setTotalAmount(initial?.totalAmount != null ? String(initial.totalAmount) : "");
-    setPurchaseDate(initial?.purchaseDate ?? todayStr());
+    setPurchaseDate(initial ? toDatetimeLocal(initial.entryAt, initial.purchaseDate || initial.entryDate) : nowDatetimeLocal());
     setPurchaserName(initial?.purchaserName || initial?.purchaser.displayName || "");
     setFromKind((initial?.fromKind as PartyKind) || "member");
     setFromId(initial?.fromId ?? null);
@@ -515,9 +517,10 @@ function CostDialog({
           />
 
           <div className="grid sm:grid-cols-2 gap-3">
-            <Field label="日期" required>
+            <Field label="时间" required>
               <Input
-                type="date"
+                type="datetime-local"
+                step={60}
                 value={purchaseDate}
                 onChange={(e) => setPurchaseDate(e.target.value)}
               />
