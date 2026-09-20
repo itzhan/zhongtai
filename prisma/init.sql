@@ -21,6 +21,7 @@ CREATE TABLE "Project" (
     "description" TEXT NOT NULL DEFAULT '',
     "enableDemands" BOOLEAN NOT NULL DEFAULT false,
     "enableBatches" BOOLEAN NOT NULL DEFAULT false,
+    "enableDesks" BOOLEAN NOT NULL DEFAULT false,
     "startedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "deletedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

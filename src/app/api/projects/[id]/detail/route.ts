@@ -41,7 +41,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
         })
       : Promise.resolve(null),
 
-    canSeeDesks
+    canSeeDesks && project.enableDesks
       ? prisma.desk.findMany({
           where: {
             deletedAt: null,

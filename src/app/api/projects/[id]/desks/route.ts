@@ -14,8 +14,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const projectId = parseId((await ctx.params).id);
   if (!projectId) return badRequest("id 非法");
 
-  const project = await prisma.project.findUnique({ where: { id: projectId }, select: { id: true } });
+  const project = await prisma.project.findUnique({ where: { id: projectId }, select: { id: true, enableDesks: true } });
   if (!project) return notFound("项目不存在");
+  if (!project.enableDesks) return badRequest("该项目未开启台子信息");
 
   const body = (await req.json().catch(() => ({}))) as Partial<{ deskId: number; deskIds: number[] }>;
   const ids = Array.isArray(body.deskIds)

@@ -9,6 +9,7 @@ export interface Project {
   /// 可选模块
   enableDemands: boolean;
   enableBatches: boolean;
+  enableDesks: boolean;
   startedAt: string;
   _count: { desks: number; products: number; purchases: number };
 }

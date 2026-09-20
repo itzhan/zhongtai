@@ -50,6 +50,7 @@ const MANIFEST = [
       ["ownerName", '"ownerName" TEXT NOT NULL DEFAULT \'\''],
       ["enableDemands", '"enableDemands" BOOLEAN NOT NULL DEFAULT false'],
       ["enableBatches", '"enableBatches" BOOLEAN NOT NULL DEFAULT false'],
+      ["enableDesks", '"enableDesks" BOOLEAN NOT NULL DEFAULT false'],
     ],
   },
   {

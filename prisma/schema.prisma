@@ -77,6 +77,8 @@ model Project {
   enableDemands Boolean @default(false)
   /// 是否启用产出批次模块（可选）
   enableBatches Boolean @default(false)
+  /// 是否在详情里展示台子信息（可选）
+  enableDesks Boolean @default(false)
   startedAt   DateTime @default(now())
   deletedAt   DateTime?
   createdAt   DateTime @default(now())

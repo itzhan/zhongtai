@@ -45,6 +45,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     description: string;
     enableDemands: boolean;
     enableBatches: boolean;
+    enableDesks: boolean;
   }>;
 
   const data: Record<string, unknown> = {};
@@ -69,6 +70,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (body.description !== undefined) data.description = body.description;
   if (body.enableDemands !== undefined) data.enableDemands = Boolean(body.enableDemands);
   if (body.enableBatches !== undefined) data.enableBatches = Boolean(body.enableBatches);
+  if (body.enableDesks !== undefined) data.enableDesks = Boolean(body.enableDesks);
 
   const item = await prisma.project.update({ where: { id }, data, include: INCLUDE });
   return NextResponse.json({ item: shape(item) });

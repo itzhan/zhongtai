@@ -44,6 +44,7 @@ export async function POST(req: Request) {
     description: string;
     enableDemands: boolean;
     enableBatches: boolean;
+    enableDesks: boolean;
   }>;
 
   const name = (body.name ?? "").trim();
@@ -62,6 +63,7 @@ export async function POST(req: Request) {
       description: body.description ?? "",
       enableDemands: body.enableDemands === undefined ? true : Boolean(body.enableDemands),
       enableBatches: Boolean(body.enableBatches),
+      enableDesks: Boolean(body.enableDesks),
     },
     include: INCLUDE,
   });

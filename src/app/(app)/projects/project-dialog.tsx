@@ -41,6 +41,7 @@ export default function ProjectDialog({
   const [description, setDescription] = useState("");
   const [enableDemands, setEnableDemands] = useState(false);
   const [enableBatches, setEnableBatches] = useState(false);
+  const [enableDesks, setEnableDesks] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // 每次打开都从 initial 重新灌一遍, 避免上一次编辑的残留
@@ -51,6 +52,7 @@ export default function ProjectDialog({
     setDescription(initial?.description ?? "");
     setEnableDemands(Boolean(initial?.enableDemands));
     setEnableBatches(Boolean(initial?.enableBatches));
+    setEnableDesks(Boolean(initial?.enableDesks));
   }, [open, initial]);
 
   async function save() {
@@ -62,6 +64,7 @@ export default function ProjectDialog({
       description,
       enableDemands,
       enableBatches,
+      enableDesks,
     };
 
     setSaving(true);
@@ -126,8 +129,21 @@ export default function ProjectDialog({
             />
           </Field>
 
-          <Field label="可选模块" hint="成本/收入与台子默认展示；以下模块按需开启">
+          <Field label="可选模块" hint="成本/收入默认展示；以下模块按需开启">
             <div className="flex flex-col gap-3 rounded-lg border border-border p-3">
+              <label className="flex items-start gap-2 text-sm cursor-pointer">
+                <Checkbox
+                  checked={enableDesks}
+                  onCheckedChange={(v) => setEnableDesks(v === true)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="font-medium">台子信息</span>
+                  <span className="block text-xs text-muted-foreground">
+                    在详情里挂入、查看本项目的台子
+                  </span>
+                </span>
+              </label>
               <label className="flex items-start gap-2 text-sm cursor-pointer">
                 <Checkbox
                   checked={enableDemands}

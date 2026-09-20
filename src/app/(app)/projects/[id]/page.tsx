@@ -137,6 +137,9 @@ interface Detail {
     name: string;
     status: ProjectStatus;
     description: string;
+    enableDemands?: boolean;
+    enableBatches?: boolean;
+    enableDesks?: boolean;
   };
   entries: Entry[] | null;
   desks: DeskRow[] | null;
@@ -572,7 +575,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           </Card>
         )}
 
-        {detail?.desks && (
+        {detail?.project.enableDesks && detail?.desks && (
           <Card className="mb-4">
             <CardHeader className="pb-3 flex-row items-center justify-between space-y-0">
               <div>
