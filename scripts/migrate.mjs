@@ -47,7 +47,6 @@ const MANIFEST = [
   {
     table: "Project",
     columns: [
-      ["ownerName", '"ownerName" TEXT NOT NULL DEFAULT \'\''],
       ["enableDemands", '"enableDemands" BOOLEAN NOT NULL DEFAULT false'],
       ["enableBatches", '"enableBatches" BOOLEAN NOT NULL DEFAULT false'],
       ["enableDesks", '"enableDesks" BOOLEAN NOT NULL DEFAULT false'],
@@ -214,12 +213,14 @@ async function dropProjectOwner() {
       "description" TEXT NOT NULL DEFAULT '',
       "enableDemands" BOOLEAN NOT NULL DEFAULT false,
       "enableBatches" BOOLEAN NOT NULL DEFAULT false,
+      "enableDesks" BOOLEAN NOT NULL DEFAULT false,
       "startedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "deletedAt" DATETIME,
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "updatedAt" DATETIME NOT NULL
     )`,
-    `SELECT id, code, name, status, description, enableDemands, enableBatches, startedAt, deletedAt, createdAt, updatedAt FROM "Project"`,
+    `SELECT id, code, name, status, description, enableDemands, enableBatches, 0,
+      startedAt, deletedAt, createdAt, updatedAt FROM "Project"`,
     [
       'CREATE UNIQUE INDEX "Project_code_key" ON "Project"("code")',
       'CREATE INDEX "Project_status_idx" ON "Project"("status")',
