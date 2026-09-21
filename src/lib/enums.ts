@@ -87,15 +87,17 @@ export const PURCHASE_KIND_LABEL: Record<PurchaseKind, string> = {
 };
 
 /// 项目收支流水方向
-export const FINANCE_KIND = ["income", "cost"] as const;
+export const FINANCE_KIND = ["income", "cost", "receivable"] as const;
 export type FinanceKind = (typeof FINANCE_KIND)[number];
 export const FINANCE_KIND_LABEL: Record<FinanceKind, string> = {
   income: "收入",
   cost: "成本",
+  receivable: "待收款",
 };
 export const FINANCE_KIND_VARIANT: Record<FinanceKind, BadgeVariant> = {
   income: "success",
   cost: "warning",
+  receivable: "info",
 };
 
 /// 成本来源

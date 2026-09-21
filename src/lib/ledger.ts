@@ -84,6 +84,19 @@ export async function parseTransfer(
   return { fromKind, fromId, fromName, toKind, toId, toName, currency, channel };
 }
 
+export async function parseDebtor(
+  body: Record<string, unknown>,
+): Promise<{ error: string } | { fromKind: string; fromId: number; fromName: string; currency: string }> {
+  const from = await resolveParty(body.fromKind ?? "partner", body.fromId);
+  if ("error" in from) return { error: "请选择欠款人" };
+  let currency = "cny";
+  if (body.currency !== undefined) {
+    if (!isOneOf(FUND_CURRENCY, body.currency)) return { error: "币种非法" };
+    currency = body.currency;
+  }
+  return { fromKind: from.kind, fromId: from.id, fromName: from.name, currency };
+}
+
 export function partyClause(kind: PartyKind, id: number) {
   return {
     OR: [

@@ -28,9 +28,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     role === ROLES.PRODUCTION ||
     role === ROLES.RESOURCE;
 
-  let entryKind: string | undefined;
-  if (role === ROLES.SALES) entryKind = "income";
-  else if (role === ROLES.RESOURCE) entryKind = "cost";
+  const entryKindWhere =
+    role === ROLES.SALES
+      ? { kind: { in: ["income", "receivable"] } }
+      : role === ROLES.RESOURCE
+        ? { kind: "cost" }
+        : {};
 
   const [demands, desks, entries] = await Promise.all([
     canSeeDemands
@@ -61,7 +64,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
           where: {
             projectId: id,
             deletedAt: null,
-            ...(entryKind ? { kind: entryKind } : {}),
+            ...entryKindWhere,
           },
           include: {
             createdBy: { select: { id: true, displayName: true } },

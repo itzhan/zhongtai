@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { badRequest, notFound, parseId, requireRole, requireRoleFresh } from "@/lib/guard";
 import { COST_SOURCE, FINANCE_KIND, isOneOf } from "@/lib/enums";
 import { parseEntryMoment } from "@/lib/format";
-import { parseTransfer } from "@/lib/ledger";
+import { parseDebtor, parseTransfer } from "@/lib/ledger";
 import { jsonItem, maskMany } from "@/lib/mask";
 import { ROLES } from "@/lib/rbac";
 
@@ -36,20 +36,22 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const rawSize = Number(sp.get("pageSize") ?? 10);
   const pageSize = PAGE_SIZES.has(rawSize) ? rawSize : 10;
 
-  let kindFilter: string | undefined;
+  let kindWhere: Record<string, unknown> = {};
   if (kind && kind !== "all") {
     if (!isOneOf(FINANCE_KIND, kind)) return badRequest("流水类型非法");
-    kindFilter = kind;
+    if (g.session.role === ROLES.SALES && kind === "cost") return badRequest("无权查看成本");
+    if (g.session.role === ROLES.RESOURCE && kind !== "cost") return badRequest("无权查看该类型");
+    kindWhere = { kind };
   } else if (g.session.role === ROLES.SALES) {
-    kindFilter = "income";
+    kindWhere = { kind: { in: ["income", "receivable"] } };
   } else if (g.session.role === ROLES.RESOURCE) {
-    kindFilter = "cost";
+    kindWhere = { kind: "cost" };
   }
 
   const where = {
     projectId,
     deletedAt: null,
-    ...(kindFilter ? { kind: kindFilter } : {}),
+    ...kindWhere,
     ...(creator && creator !== "all" ? { creatorName: creator } : {}),
     ...(from || to
       ? { entryDate: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
@@ -87,10 +89,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
-  if (!isOneOf(FINANCE_KIND, body.kind)) return badRequest("请选择收入或成本");
+  if (!isOneOf(FINANCE_KIND, body.kind)) return badRequest("请选择收入、成本或待收款");
 
-  if (g.session.role === ROLES.SALES && body.kind !== "income") {
-    return badRequest("销售只能新增收入记录");
+  if (g.session.role === ROLES.SALES && body.kind !== "income" && body.kind !== "receivable") {
+    return badRequest("销售只能新增收入或待收款");
   }
   if (g.session.role === ROLES.RESOURCE && body.kind !== "cost") {
     return badRequest("资源管理员只能新增成本记录");
@@ -104,8 +106,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const note = String(body.note ?? "").trim();
   if (!note) return badRequest("请填写这笔钱是干啥的");
 
-  const transfer = await parseTransfer(body, true);
-  if ("error" in transfer) return badRequest(transfer.error);
+  let transfer: Awaited<ReturnType<typeof parseTransfer>>;
+  if (body.kind === "receivable") {
+    const debtor = await parseDebtor(body);
+    if ("error" in debtor) return badRequest(debtor.error);
+    transfer = {
+      fromKind: debtor.fromKind,
+      fromId: debtor.fromId,
+      fromName: debtor.fromName,
+      toKind: "",
+      toId: null,
+      toName: "",
+      currency: debtor.currency,
+      channel: "",
+    };
+  } else {
+    transfer = await parseTransfer(body, true);
+    if ("error" in transfer) return badRequest(transfer.error);
+  }
 
   let costSource = "self";
   let supplierId: number | null = null;

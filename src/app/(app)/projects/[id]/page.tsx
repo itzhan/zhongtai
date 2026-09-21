@@ -11,6 +11,7 @@ import {
   RefreshCw,
   TrendingUp,
   Wallet,
+  Hourglass,
 } from "lucide-react";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import DataState from "@/components/DataState";
@@ -84,7 +85,7 @@ import {
 import PartyLink from "@/components/PartyLink";
 import PartyPicker from "@/components/PartyPicker";
 import PurposeCell from "@/components/PurposeCell";
-import { fmtLedgerAmount, fmtMinute, fmtMoneyShort, nowDatetimeLocal, toDatetimeLocal } from "@/lib/format";
+import { fmtLedgerAmount, fmtMinute, fmtMoneyShort, nowDatetimeLocal, toCny, toDatetimeLocal } from "@/lib/format";
 import { ROLES } from "@/lib/rbac";
 import type { Desk } from "../../desks/types";
 import { useMemberOptions, usePartnerOptions, useSupplierOptions } from "@/hooks/use-options";
@@ -190,6 +191,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const [entryOpen, setEntryOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<Entry | null>(null);
   const [deletingEntry, setDeletingEntry] = useState<Entry | null>(null);
+  const [collectingEntry, setCollectingEntry] = useState<Entry | null>(null);
 
   const [demandOpen, setDemandOpen] = useState(false);
   const [editingDemand, setEditingDemand] = useState<Demand | null>(null);
@@ -260,10 +262,16 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
   const canWriteEntry = (kind: FinanceKind) => {
     if (session.role === ROLES.ADMIN || session.role === ROLES.FINANCE) return true;
-    if (session.role === ROLES.SALES) return kind === "income";
+    if (session.role === ROLES.SALES) return kind === "income" || kind === "receivable";
     if (session.role === ROLES.RESOURCE) return kind === "cost";
     return false;
   };
+
+  const pendingTotal = useMemo(() => {
+    return (detail?.entries ?? [])
+      .filter((e) => e.kind === "receivable" && e.amount != null)
+      .reduce((s, e) => s + toCny(e.amount ?? 0, e.currency), 0);
+  }, [detail?.entries]);
 
   async function fetchUsage(deskId: number) {
     setUsageMap((m) => ({ ...m, [deskId]: "loading" }));
@@ -304,6 +312,24 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
               accent={profit.profit >= 0 ? "primary" : "danger"}
             />
             <StatCard label="利润率" value={`${(profit.margin * 100).toFixed(1)}%`} icon={Percent} accent="default" />
+            <StatCard
+              label="待收款"
+              value={fmtMoneyShort(pendingTotal)}
+              icon={Hourglass}
+              accent="warning"
+              hint="已欠未付，不计入利润"
+            />
+          </div>
+        )}
+        {!profit && (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-4">
+            <StatCard
+              label="待收款"
+              value={fmtMoneyShort(pendingTotal)}
+              icon={Hourglass}
+              accent="warning"
+              hint="已欠未付，不计入利润"
+            />
           </div>
         )}
 
@@ -379,7 +405,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
         {detail?.entries !== null && detail?.entries !== undefined && (
           <Card className="mb-4">
             <CardHeader className="pb-3 flex-row items-center justify-between space-y-0 gap-3">
-              <CardTitle className="text-base shrink-0">成本 / 收入记录</CardTitle>
+              <CardTitle className="text-base shrink-0">账单记录</CardTitle>
               <div className="flex items-center justify-end gap-2 overflow-x-auto">
                 <Input
                   className="h-8 w-40"
@@ -395,6 +421,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                     <SelectItem value="all">全部方向</SelectItem>
                     <SelectItem value="income">收入</SelectItem>
                     <SelectItem value="cost">成本</SelectItem>
+                    <SelectItem value="receivable">待收款</SelectItem>
                   </SelectContent>
                 </Select>
                 <Select value={entryParty} onValueChange={setEntryParty}>
@@ -461,7 +488,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                     <TableHeader>
                       <TableRow>
                         <TableHead>方向</TableHead>
-                        <TableHead>转出</TableHead>
+                        <TableHead>转出 / 欠款人</TableHead>
                         <TableHead>转入</TableHead>
                         <TableHead>渠道</TableHead>
                         <TableHead className="text-right">金额</TableHead>
@@ -480,18 +507,22 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                             <PartyLink kind={e.fromKind} id={e.fromId} name={e.fromName} />
                           </TableCell>
                           <TableCell className="text-sm">
-                            <PartyLink kind={e.toKind} id={e.toId} name={e.toName} />
+                            {e.kind === "receivable" ? (
+                              <span className="text-muted-foreground">-</span>
+                            ) : (
+                              <PartyLink kind={e.toKind} id={e.toId} name={e.toName} />
+                            )}
                           </TableCell>
                           <TableCell>
-                            <div className="flex flex-wrap gap-1">
-                              {isOneOf(PAY_CHANNEL, e.channel) ? (
-                                <Badge variant={PAY_CHANNEL_VARIANT[e.channel]}>
-                                  {PAY_CHANNEL_LABEL[e.channel]}
-                                </Badge>
-                              ) : (
-                                <span className="text-muted-foreground">-</span>
-                              )}
-                            </div>
+                            {e.kind === "receivable" ? (
+                              <span className="text-muted-foreground">-</span>
+                            ) : isOneOf(PAY_CHANNEL, e.channel) ? (
+                              <Badge variant={PAY_CHANNEL_VARIANT[e.channel]}>
+                                {PAY_CHANNEL_LABEL[e.channel]}
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
                           </TableCell>
                           <TableCell
                             className={`text-right tabular-nums font-medium ${
@@ -515,6 +546,9 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
+                                  {e.kind === "receivable" && (
+                                    <DropdownMenuItem onClick={() => setCollectingEntry(e)}>入账</DropdownMenuItem>
+                                  )}
                                   <DropdownMenuItem
                                     onClick={() => {
                                       setEditingEntry(e);
@@ -670,6 +704,15 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
         initial={editingEntry}
         role={session.role}
         onSaved={reload}
+      />
+      <CollectDialog
+        open={collectingEntry !== null}
+        onOpenChange={(v) => !v && setCollectingEntry(null)}
+        entry={collectingEntry}
+        onSaved={() => {
+          setCollectingEntry(null);
+          reload();
+        }}
       />
 
       <AttachDeskDialog
@@ -846,7 +889,7 @@ function EntryDialog({
   const [saving, setSaving] = useState(false);
 
   const kindOptions = useMemo(() => {
-    if (role === ROLES.SALES) return ["income"] as FinanceKind[];
+    if (role === ROLES.SALES) return ["income", "receivable"] as FinanceKind[];
     if (role === ROLES.RESOURCE) return ["cost"] as FinanceKind[];
     return [...FINANCE_KIND];
   }, [role]);
@@ -857,7 +900,7 @@ function EntryDialog({
     setKind(nextKind);
     setCostSource((initial?.costSource as CostSource) || "self");
     setSupplierId(initial?.supplierId ? String(initial.supplierId) : initial?.supplier ? String(initial.supplier.id) : "");
-    setFromKind((initial?.fromKind as PartyKind) || (nextKind === "income" ? "partner" : "member"));
+    setFromKind((initial?.fromKind as PartyKind) || (nextKind === "cost" ? "member" : "partner"));
     setFromId(initial?.fromId ?? null);
     setToKind((initial?.toKind as PartyKind) || (nextKind === "income" ? "member" : "partner"));
     setToId(initial?.toId ?? null);
@@ -873,9 +916,13 @@ function EntryDialog({
     if (!Number.isFinite(amt) || amt < 0) return toast.warning("金额非法");
     if (!entryDate) return toast.warning("请选择日期");
     if (!note.trim()) return toast.warning("请填写这笔钱是干啥的");
-    if (!fromId) return toast.warning("请选择转出人");
-    if (!toId) return toast.warning("请选择转入人");
-    if (!channel) return toast.warning("请选择转账渠道");
+    if (kind === "receivable") {
+      if (!fromId) return toast.warning("请选择欠款人");
+    } else {
+      if (!fromId) return toast.warning("请选择转出人");
+      if (!toId) return toast.warning("请选择转入人");
+      if (!channel) return toast.warning("请选择转账渠道");
+    }
     if (kind === "cost" && costSource === "supplier" && !supplierId) {
       return toast.warning("请选择供应商");
     }
@@ -889,8 +936,7 @@ function EntryDialog({
       channel,
       fromKind,
       fromId,
-      toKind,
-      toId,
+      ...(kind === "receivable" ? {} : { toKind, toId, channel }),
       costSource: kind === "cost" ? costSource : "self",
       supplierId: kind === "cost" && costSource === "supplier" ? Number(supplierId) : null,
     };
@@ -924,7 +970,27 @@ function EntryDialog({
             {kindOptions.length === 1 ? (
               <Input value={FINANCE_KIND_LABEL[kindOptions[0]]} disabled />
             ) : (
-              <Tabs value={kind} onValueChange={(v) => setKind(v as FinanceKind)}>
+              <Tabs
+                value={kind}
+                onValueChange={(v) => {
+                  const next = v as FinanceKind;
+                  setKind(next);
+                  if (next === "receivable") {
+                    setFromKind("partner");
+                    setFromId(null);
+                  } else if (next === "income") {
+                    setFromKind("partner");
+                    setToKind("member");
+                    setFromId(null);
+                    setToId(null);
+                  } else {
+                    setFromKind("member");
+                    setToKind("partner");
+                    setFromId(null);
+                    setToId(null);
+                  }
+                }}
+              >
                 <TabsList className="w-full">
                   {kindOptions.map((k) => (
                     <TabsTrigger key={k} value={k} className="flex-1">
@@ -936,7 +1002,7 @@ function EntryDialog({
             )}
           </Field>
           <PartyPicker
-            label="转出人"
+            label={kind === "receivable" ? "欠款人" : "转出人"}
             kind={fromKind}
             id={fromId}
             members={members}
@@ -946,6 +1012,7 @@ function EntryDialog({
               setFromId(id);
             }}
           />
+          {kind !== "receivable" && (
           <PartyPicker
             label="转入人"
             kind={toKind}
@@ -957,6 +1024,7 @@ function EntryDialog({
               setToId(id);
             }}
           />
+          )}
           {kind === "cost" && (
             <>
               <Field label="成本类型">
@@ -1022,6 +1090,7 @@ function EntryDialog({
                 </SelectContent>
               </Select>
             </Field>
+            {kind !== "receivable" ? (
             <Field label="渠道" required>
               <Select value={channel || undefined} onValueChange={(v) => setChannel(v as PayChannel)}>
                 <SelectTrigger>
@@ -1036,9 +1105,12 @@ function EntryDialog({
                 </SelectContent>
               </Select>
             </Field>
+            ) : (
+              <div />
+            )}
           </div>
           <Field label="这笔钱是干啥的" required>
-            <Textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="例如：上游结算 / 甲方回款" />
+            <Textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder={kind === "receivable" ? "例如：本月跑付尚未回款" : "例如：上游结算 / 甲方回款"} />
           </Field>
         </div>
         <DialogFooter>
@@ -1048,6 +1120,111 @@ function EntryDialog({
           <Button onClick={save} disabled={saving}>
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             保存
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CollectDialog({
+  open,
+  onOpenChange,
+  entry,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  entry: Entry | null;
+  onSaved: () => void;
+}) {
+  const members = useMemberOptions(open);
+  const partners = usePartnerOptions(open);
+  const [toKind, setToKind] = useState<PartyKind>("member");
+  const [toId, setToId] = useState<number | null>(null);
+  const [channel, setChannel] = useState<PayChannel | "">("");
+  const [paidAt, setPaidAt] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setToKind("member");
+    setToId(null);
+    setChannel("");
+    setPaidAt(nowDatetimeLocal());
+  }, [open, entry?.id]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>待收款入账</DialogTitle>
+        </DialogHeader>
+        {entry && (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {entry.fromName || "欠款人"} 欠{" "}
+              <span className="font-medium text-foreground">{fmtLedgerAmount(entry.amount, entry.currency)}</span>
+              {entry.note ? ` · ${entry.note.split("\n")[0]}` : ""}
+            </p>
+            <PartyPicker
+              label="钱打给了谁"
+              kind={toKind}
+              id={toId}
+              members={members}
+              partners={partners}
+              onChange={(k, id) => {
+                setToKind(k);
+                setToId(id);
+              }}
+            />
+            <Field label="渠道" required>
+              <Select value={channel || undefined} onValueChange={(v) => setChannel(v as PayChannel)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="支付宝 / 微信 / 银行卡" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAY_CHANNEL.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {PAY_CHANNEL_LABEL[c]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="到账时间" required>
+              <Input type="datetime-local" step={60} value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
+            </Field>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+            取消
+          </Button>
+          <Button
+            disabled={saving}
+            onClick={async () => {
+              if (!entry) return;
+              if (!toId) return toast.warning("请选择钱打给了谁");
+              if (!channel) return toast.warning("请选择转账渠道");
+              if (!paidAt) return toast.warning("请填写到账时间");
+              setSaving(true);
+              const ok = await mutate(
+                () =>
+                  api.post(`/api/entries/${entry.id}/collect`, {
+                    toKind,
+                    toId,
+                    channel,
+                    entryDate: paidAt,
+                  }),
+                { success: "已转入收入", error: "入账失败" },
+              );
+              setSaving(false);
+              if (ok) onSaved();
+            }}
+          >
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            确认入账
           </Button>
         </DialogFooter>
       </DialogContent>

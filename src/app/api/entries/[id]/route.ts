@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { badRequest, forbidden, notFound, parseId, requireRoleFresh } from "@/lib/guard";
 import { COST_SOURCE, FINANCE_KIND, isOneOf } from "@/lib/enums";
 import { parseEntryMoment } from "@/lib/format";
-import { parseTransfer } from "@/lib/ledger";
+import { parseDebtor, parseTransfer } from "@/lib/ledger";
 import { jsonItem } from "@/lib/mask";
 import { ROLES } from "@/lib/rbac";
 
@@ -17,7 +17,7 @@ const INCLUDE = {
 
 function canWriteKind(role: string, kind: string): boolean {
   if (role === ROLES.ADMIN || role === ROLES.FINANCE) return true;
-  if (role === ROLES.SALES) return kind === "income";
+  if (role === ROLES.SALES) return kind === "income" || kind === "receivable";
   if (role === ROLES.RESOURCE) return kind === "cost";
   return false;
 }
@@ -62,19 +62,39 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     body.currency !== undefined ||
     body.channel !== undefined
   ) {
-    const transfer = await parseTransfer(
-      {
+    const nextKind = (body.kind as string | undefined) ?? existing.kind;
+    if (nextKind === "receivable") {
+      const debtor = await parseDebtor({
         fromKind: body.fromKind ?? existing.fromKind,
         fromId: body.fromId ?? existing.fromId,
-        toKind: body.toKind ?? existing.toKind,
-        toId: body.toId ?? existing.toId,
         currency: body.currency ?? existing.currency,
-        channel: body.channel ?? existing.channel,
-      },
-      true,
-    );
-    if ("error" in transfer) return badRequest(transfer.error);
-    Object.assign(data, transfer);
+      });
+      if ("error" in debtor) return badRequest(debtor.error);
+      Object.assign(data, {
+        fromKind: debtor.fromKind,
+        fromId: debtor.fromId,
+        fromName: debtor.fromName,
+        toKind: "",
+        toId: null,
+        toName: "",
+        currency: debtor.currency,
+        channel: "",
+      });
+    } else {
+      const transfer = await parseTransfer(
+        {
+          fromKind: body.fromKind ?? existing.fromKind,
+          fromId: body.fromId ?? existing.fromId,
+          toKind: body.toKind ?? existing.toKind,
+          toId: body.toId ?? existing.toId,
+          currency: body.currency ?? existing.currency,
+          channel: body.channel ?? existing.channel,
+        },
+        true,
+      );
+      if ("error" in transfer) return badRequest(transfer.error);
+      Object.assign(data, transfer);
+    }
   }
   const nextKind = (data.kind as string | undefined) ?? existing.kind;
   if (nextKind === "income") {
